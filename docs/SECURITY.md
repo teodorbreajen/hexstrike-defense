@@ -412,50 +412,50 @@ FAIL=0
 
 # Check 1: etcd encryption enabled
 if kubectl get configmap -n kube-system encryption-config &>/dev/null; then
-  echo "✅ etcd encryption configured"
+  echo "[PASS] etcd encryption configured"
   ((PASS++))
 else
-  echo "❌ etcd encryption NOT configured"
+  echo "[FAIL] etcd encryption NOT configured"
   ((FAIL++))
 fi
 
 # Check 2: PSS restricted on hexstrike namespaces
 PSS_STATUS=$(kubectl get namespace hexstrike-agents -o jsonpath='{.metadata.labels.pod-security\.kubernetes\.io\/enforce}')
 if [ "$PSS_STATUS" == "restricted" ]; then
-  echo "✅ PSS restricted enforced"
+  echo "[PASS] PSS restricted enforced"
   ((PASS++))
 else
-  echo "❌ PSS restricted NOT enforced"
+  echo "[FAIL] PSS restricted NOT enforced"
   ((FAIL++))
 fi
 
 # Check 3: Network policies applied
 POLICY_COUNT=$(kubectl get ciliumnetworkpolicies -A --no-headers | wc -l)
 if [ $POLICY_COUNT -ge 4 ]; then
-  echo "✅ Network policies applied ($POLICY_COUNT)"
+  echo "[PASS] Network policies applied ($POLICY_COUNT)"
   ((PASS++))
 else
-  echo "❌ Insufficient network policies ($POLICY_COUNT)"
+  echo "[FAIL] Insufficient network policies ($POLICY_COUNT)"
   ((FAIL++))
 fi
 
 # Check 4: Falco running
 FALCO_RUNNING=$(kubectl get pods -l app=falco -n hexstrike-monitoring --no-headers 2>/dev/null | grep Running | wc -l)
 if [ $FALCO_RUNNING -gt 0 ]; then
-  echo "✅ Falco running ($FALCO_RUNNING instances)"
+  echo "[PASS] Falco running ($FALCO_RUNNING instances)"
   ((PASS++))
 else
-  echo "❌ Falco NOT running"
+  echo "[FAIL] Falco NOT running"
   ((FAIL++))
 fi
 
 # Check 5: Talon webhook registered
 TALON_WEBHOOK=$(kubectl get mutatingwebhookconfigurations 2>/dev/null | grep talon | wc -l)
 if [ $TALON_WEBHOOK -gt 0 ]; then
-  echo "✅ Talon webhook registered"
+  echo "[PASS] Talon webhook registered"
   ((PASS++))
 else
-  echo "❌ Talon webhook NOT registered"
+  echo "[FAIL] Talon webhook NOT registered"
   ((FAIL++))
 fi
 
@@ -465,10 +465,10 @@ echo "Passed: $PASS"
 echo "Failed: $FAIL"
 
 if [ $FAIL -eq 0 ]; then
-  echo "✅ All hardening checks passed!"
+  echo "[PASS] All hardening checks passed!"
   exit 0
 else
-  echo "❌ Some hardening checks failed"
+  echo "[FAIL] Some hardening checks failed"
   exit 1
 fi
 ```

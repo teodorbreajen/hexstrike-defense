@@ -158,52 +158,52 @@ HexStrike Defense implements a **7-layer defense-in-depth architecture** to prot
 │      ▼                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │  Layer 1: Infrastructure Security                               │   │
-│   │  • RBAC validation                                              │   │
-│   │  • TLS termination                                              │   │
-│   │  • DDoS protection                                              │   │
+│   │  - RBAC validation                                              │   │
+│   │  - TLS termination                                              │   │
+│   │  - DDoS protection                                              │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │      │                                                                   │
 │      ▼                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │  Layer 2: Agent Isolation                                        │   │
-│   │  • Namespace isolation                                          │   │
-│   │  • Resource quotas                                              │   │
-│   │  • Pod Security Standards                                        │   │
+│   │  - Namespace isolation                                          │   │
+│   │  - Resource quotas                                              │   │
+│   │  - Pod Security Standards                                        │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │      │                                                                   │
 │      ▼                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │  Layer 3: Network Containment (Cilium)                           │   │
-│   │  • Default-deny egress                                          │   │
-│   │  • DNS whitelisting                                              │   │
-│   │  • Allowed endpoints only                                        │   │
-│   │  • Hubble flow logging                                           │   │
+│   │  - Default-deny egress                                          │   │
+│   │  - DNS whitelisting                                              │   │
+│   │  - Allowed endpoints only                                        │   │
+│   │  - Hubble flow logging                                           │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │      │                                                                   │
 │      ▼                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │  Layer 4: Runtime Detection (Falco + Talon)                     │   │
-│   │  • eBPF syscall monitoring                                       │   │
-│   │  • Shell spawn detection                                         │   │
-│   │  • /etc write detection                                          │   │
-│   │  • Automated response via Talon                                  │   │
+│   │  - eBPF syscall monitoring                                       │   │
+│   │  - Shell spawn detection                                         │   │
+│   │  - /etc write detection                                          │   │
+│   │  - Automated response via Talon                                  │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │      │                                                                   │
 │      ▼                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │  Layer 5: Semantic Firewall (MCP Policy Proxy)                   │   │
-│   │  • JSON-RPC validation                                           │   │
-│   │  • Lakera prompt injection detection                             │   │
-│   │  • Rate limiting                                                 │   │
-│   │  • Tool call filtering                                           │   │
+│   │  - JSON-RPC validation                                           │   │
+│   │  - Lakera prompt injection detection                             │   │
+│   │  - Rate limiting                                                 │   │
+│   │  - Tool call filtering                                           │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │      │                                                                   │
 │      ▼                                                                   │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │  Layer 6: Observability Integration                              │   │
-│   │  • Metrics to Prometheus                                         │   │
-│   │  • Errors to Sentry                                             │   │
-│   │  • LangGraph state tracking                                      │   │
+│   │  - Metrics to Prometheus                                         │   │
+│   │  - Errors to Sentry                                             │   │
+│   │  - LangGraph state tracking                                      │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │      │                                                                   │
 │      ▼                                                                   │
@@ -232,9 +232,9 @@ HexStrike Defense implements a **7-layer defense-in-depth architecture** to prot
 │                                    ▼                                    │
 │   ┌─────────────────────────────────────────────────────────────────┐   │
 │   │                    Event Classification                            │   │
-│   │   • CRITICAL: Reverse shell, /etc write                         │   │
-│   │   • WARNING: Shell spawn outside maintenance window              │   │
-│   │   • INFO: Normal operations                                      │   │
+│   │   - CRITICAL: Reverse shell, /etc write                         │   │
+│   │   - WARNING: Shell spawn outside maintenance window              │   │
+│   │   - INFO: Normal operations                                      │   │
 │   └─────────────────────────────────────────────────────────────────┘   │
 │                                    │                                    │
 │                   ┌────────────────┼────────────────┐                   │
@@ -418,16 +418,16 @@ User Request
      ▼
 ┌─────────────────────────────────────────┐
 │ 3. Cilium Network Policy Check           │
-│    • DNS resolution (kube-dns only)     │
-│    • Allowed endpoint verification       │
+│    - DNS resolution (kube-dns only)     │
+│    - Allowed endpoint verification       │
 └─────────────────────────────────────────┘
      │
      ▼
 ┌─────────────────────────────────────────┐
 │ 4. MCP Policy Proxy                      │
-│    • JSON-RPC validation                 │
-│    • Rate limit check                    │
-│    • Lakera semantic check               │
+│    - JSON-RPC validation                 │
+│    - Rate limit check                    │
+│    - Lakera semantic check               │
 └─────────────────────────────────────────┘
      │
      ▼
@@ -438,8 +438,8 @@ User Request
      ▼
 ┌─────────────────────────────────────────┐
 │ 6. Runtime Monitoring (Falco)            │
-│    • Syscall monitoring                  │
-│    • Anomaly detection                   │
+│    - Syscall monitoring                  │
+│    - Anomaly detection                   │
 └─────────────────────────────────────────┘
      │
      ▼

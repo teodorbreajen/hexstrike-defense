@@ -131,11 +131,11 @@ kubectl apply -f manifests/mcp-proxy/prometheus-servicemonitor.yaml
 ./scripts/validate.sh
 
 # Expected output:
-# ✅ Cilium policies applied
-# ✅ Falco rules loaded
-# ✅ Talon webhook configured
-# ✅ MCP Policy Proxy running
-# ✅ Observability endpoints configured
+# [PASS] Cilium policies applied
+# [PASS] Falco rules loaded
+# [PASS] Talon webhook configured
+# [PASS] MCP Policy Proxy running
+# [PASS] Observability endpoints configured
 ```
 
 ---
