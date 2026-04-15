@@ -1,0 +1,299 @@
+# Phase 3: Runtime Security - Talon Webhook Configuration
+# Kubernetes webhook configuration for Talon automated response
+# 
+# PURPOSE: Configure Talon to automatically respond to Falco alerts
+# SCOPE: Cluster-wide - handles all hexstrike namespace events
+# 
+# Talon is an automated incident response engine that integrates with
+# Kubernetes to take immediate action on security events.
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: talon-config
+  namespace: hexstrike-monitoring
+  labels:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/component: talon
+    hexstrike.io/version: "1.0"
+data:
+  # Talon configuration file
+  talon.yaml: |
+    # Talon Configuration for HexStrike Defense
+    # 
+    # This configuration enables automated response to Falco alerts
+    # Response time target: <200ms from alert to action
+
+    # Webhook server configuration
+    server:
+      host: "0.0.0.0"
+      port: 9876
+      path: "/webhook"
+      tls:
+        enabled: false  # Use cert-manager for production
+        cert_file: "/etc/tls/tls.crt"
+        key_file: "/etc/tls/tls.key"
+
+    # Kubernetes API connection
+    kubernetes:
+      in_cluster: true
+      namespace: "hexstrike-monitoring"
+      service_account: "talon"
+      api_server: ""  # Use in-cluster config
+
+    # Falco integration
+    falco:
+      enabled: true
+      webhook_path: "/falco"
+      health_path: "/health"
+      heartbeat_interval: 30s
+
+    # Automated response actions
+    actions:
+      # Action: kubernetes:terminate
+      # Terminates compromised pods immediately
+      terminate:
+        enabled: true
+        priority_threshold: "CRITICAL"
+        match_tags:
+          - critical
+          - hexstrike
+        actions:
+          - delete_pod
+          - record_event
+        grace_period: 0s
+        reason: "Compromised container detected by Falco"
+
+      # Action: kubernetes:labelize
+      # Adds quarantine labels to suspicious pods
+      labelize:
+        enabled: true
+        priority_threshold: "WARNING"
+        match_tags:
+          - warning
+          - hexstrike
+        actions:
+          - add_labels
+          - scale_to_zero
+        labels:
+          security.hexstrike.io/quarantined: "true"
+          security.hexstrike.io/quarantine-reason: "{{ .Rule }}"
+          security.hexstrike.io/quarantine-time: "{{ .Time }}"
+        scale_replicas: 0
+
+      # Action: isolate
+      # Isolates compromised pods by blocking network
+      isolate:
+        enabled: true
+        priority_threshold: "CRITICAL"
+        match_rules:
+          - "Reverse shell from container"
+          - "Terminal shell spawn from container"
+        actions:
+          - network_policy
+          - terminate
+        isolation_policy: "hexstrike-isolation"
+
+      # Action: capture
+      # Captures forensic evidence before termination
+      capture:
+        enabled: true
+        priority_threshold: "WARNING"
+        actions:
+          - dump_process
+          - dump_network
+          - capture_logs
+        retention: 72h
+
+    # Response time targets
+    performance:
+      target_response_time: 200ms
+      action_timeout: 5s
+      max_concurrent_actions: 10
+      queue_size: 1000
+
+    # Logging and observability
+    logging:
+      level: "info"
+      format: "json"
+      output: "stdout"
+    metrics:
+      enabled: true
+      port: 9090
+      path: "/metrics"
+
+    # Retry policy for failed actions
+    retry:
+      max_attempts: 3
+      backoff: "exponential"
+      initial_interval: 100ms
+      max_interval: 2s
+
+    # Dry-run mode for testing
+    dry_run: false
+
+---
+# Talon Deployment
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: talon
+  namespace: hexstrike-monitoring
+  labels:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/component: talon
+    hexstrike.io/version: "1.0"
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: talon
+  template:
+    metadata:
+      labels:
+        app: talon
+        hexstrike.io/component: talon
+      annotations:
+        # Link to Falco annotations for coordinated security
+        security.cyber.com/falco/action: "terminate"
+        security.cyber.com/falco/priority: "CRITICAL"
+    spec:
+      serviceAccountName: talon
+      containers:
+        - name: talon
+          image: hexstrike/talon:latest
+          imagePullPolicy: Always
+          ports:
+            - name: webhook
+              containerPort: 9876
+              protocol: TCP
+            - name: metrics
+              containerPort: 9090
+              protocol: TCP
+          env:
+            - name: TALON_CONFIG
+              value: "/etc/talon/config.yaml"
+            - name: TALON_LOG_LEVEL
+              value: "info"
+          volumeMounts:
+            - name: config
+              mountPath: /etc/talon
+              readOnly: true
+            - name: tls
+              mountPath: /etc/tls
+              readOnly: true
+          resources:
+            requests:
+              cpu: 100m
+              memory: 128Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          securityContext:
+            readOnlyRootFilesystem: true
+            runAsNonRoot: true
+            runAsUser: 1000
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 9876
+            initialDelaySeconds: 10
+            periodSeconds: 30
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 9876
+            initialDelaySeconds: 5
+            periodSeconds: 10
+      volumes:
+        - name: config
+          configMap:
+            name: talon-config
+        - name: tls
+          secret:
+            secretName: talon-tls
+      nodeSelector:
+        node-role.kubernetes.io/control-plane: ""
+
+---
+# Talon Service Account
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: talon
+  namespace: hexstrike-monitoring
+  labels:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/component: talon
+
+---
+# Talon RBAC
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: talon
+  labels:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/component: talon
+rules:
+  # Pod management for termination
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "list", "delete", "watch"]
+  # Events for audit trail
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create", "patch"]
+  # Network policies for isolation
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "create", "delete"]
+  # Scale deployments for quarantine
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch", "scale"]
+  # Pod labels for quarantine labels
+  - apiGroups: [""]
+    resources: ["pods"]
+    verbs: ["get", "patch", "update", "list"]
+
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: talon
+  labels:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/component: talon
+subjects:
+  - kind: ServiceAccount
+    name: talon
+    namespace: hexstrike-monitoring
+roleRef:
+  kind: ClusterRole
+  name: talon
+  apiGroup: rbac.authorization.k8s.io
+
+---
+# Talon Service
+apiVersion: v1
+kind: Service
+metadata:
+  name: talon
+  namespace: hexstrike-monitoring
+  labels:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/component: talon
+spec:
+  type: ClusterIP
+  ports:
+    - name: webhook
+      port: 9876
+      targetPort: webhook
+      protocol: TCP
+    - name: metrics
+      port: 9090
+      targetPort: metrics
+      protocol: TCP
+  selector:
+    app: talon

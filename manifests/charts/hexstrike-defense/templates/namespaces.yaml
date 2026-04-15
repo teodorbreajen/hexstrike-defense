@@ -1,0 +1,29 @@
+---
+# Kubernetes Namespaces for HexStrike Defense Architecture
+# Phase 1: Infrastructure Foundation
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hexstrike-system
+  labels:
+    name: hexstrike-system
+    purpose: security-controls
+    managed-by: hexstrike-defense-chart
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hexstrike-monitoring
+  labels:
+    name: hexstrike-monitoring
+    purpose: observability
+    managed-by: hexstrike-defense-chart
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: hexstrike-agents
+  labels:
+    name: hexstrike-agents
+    purpose: agent-workloads
+    managed-by: hexstrike-defense-chart

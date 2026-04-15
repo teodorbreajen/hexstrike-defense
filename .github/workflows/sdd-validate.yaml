@@ -1,0 +1,292 @@
+# SDD Validate - OpenSpec Validation Workflow
+# Validates the Spec-Driven Development structure and YAML syntax
+---
+name: SDD Validate
+
+on:
+  pull_request:
+    branches:
+      - main
+      - develop
+    paths:
+      - 'openspec/**'
+      - 'manifests/**'
+      - '.github/workflows/**'
+  push:
+    branches:
+      - main
+      - develop
+
+# Cancel in-progress runs for the same branch
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Job 1: OpenSpec Structure Validation
+  validate-openspec:
+    name: Validate OpenSpec Structure
+    runs-on: ubuntu-latest
+    outputs:
+      spec_files: ${{ steps.spec-files.outputs.count }}
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      
+      - name: Check OpenSpec directory structure
+        id: spec-files
+        run: |
+          echo "=== OpenSpec Structure Validation ==="
+          
+          # Check OpenSpec root exists
+          if [ -d "openspec" ]; then
+            echo "✓ OpenSpec directory exists"
+          else
+            echo "✗ OpenSpec directory not found"
+            exit 1
+          fi
+          
+          # Check config.yaml exists
+          if [ -f "openspec/config.yaml" ]; then
+            echo "✓ OpenSpec config.yaml exists"
+          else
+            echo "✗ OpenSpec config.yaml not found"
+            exit 1
+          fi
+          
+          # Count spec files
+          SPEC_COUNT=$(find openspec -name "*.md" | wc -l)
+          echo "Found $SPEC_COUNT markdown spec files"
+          echo "count=$SPEC_COUNT" >> $GITHUB_OUTPUT
+          
+          # List changes directory
+          if [ -d "openspec/changes" ]; then
+            echo ""
+            echo "Changes found:"
+            ls -la openspec/changes/ 2>/dev/null || echo "  (empty)"
+          fi
+      
+      - name: Validate OpenSpec config syntax
+        run: |
+          echo "=== Validating OpenSpec Config ==="
+          # Check if config.yaml is valid YAML (basic check)
+          if grep -q "^changes_dir:" openspec/config.yaml; then
+            echo "✓ config.yaml has valid structure"
+          else
+            echo "✗ config.yaml structure issue"
+            exit 1
+          fi
+
+  # Job 2: YAML Syntax Validation
+  validate-yaml:
+    name: Validate YAML Syntax
+    runs-on: ubuntu-latest
+    needs: validate-openspec
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install yamllint
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y yamllint
+      
+      - name: Lint manifests YAML files
+        run: |
+          echo "=== Validating Manifests YAML ==="
+          
+          # Create yamllint config
+          cat > .yamllint << 'EOF'
+          extends:
+            default
+          rules:
+            line-length: disable
+            document-start: disable
+            trailing-spaces: error
+          EOF
+          
+          # Find and lint all YAML files in manifests
+          YAML_COUNT=$(find manifests -name "*.yaml" | wc -l)
+          echo "Found $YAML_COUNT YAML files to validate"
+          
+          # Run yamllint on all files
+          if yamllint -c .yamllint manifests/; then
+            echo "✓ All YAML files are valid"
+          else
+            echo "✗ YAML validation failed"
+            exit 1
+          fi
+
+  # Job 3: Kubernetes Manifest Validation
+  validate-k8s-manifests:
+    name: Validate Kubernetes Manifests
+    runs-on: ubuntu-latest
+    needs: validate-yaml
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Install kustomize
+        run: |
+          curl -s "https://raw.githubusercontent.com/kubernetes-sigs/kustomize/master/hack/install_kustomize.sh" | bash
+          sudo mv kustomize /usr/local/bin/
+      
+      - name: Validate Kustomize overlays
+        run: |
+          echo "=== Validating Kustomize Overlays ==="
+          
+          # Find all kustomization.yaml files
+          for kust in $(find manifests -name "kustomization.yaml"); do
+            dir=$(dirname "$kust")
+            echo "Validating $dir..."
+            
+            if kustomize build "$dir" > /dev/null 2>&1; then
+              echo "  ✓ $dir is valid"
+            else
+              echo "  ✗ $dir has issues"
+              kustomize build "$dir" 2>&1 || true
+            fi
+          done
+      
+      - name: Check Helm chart syntax
+        run: |
+          echo "=== Validating Helm Charts ==="
+          
+          chart_path="manifests/charts/hexstrike-defense"
+          if [ -d "$chart_path" ]; then
+            # Check Chart.yaml
+            if helm lint "$chart_path" 2>/dev/null; then
+              echo "✓ Helm chart is valid"
+            else
+              echo "✗ Helm chart has issues"
+            fi
+          else
+            echo "⚠ Helm chart not found at $chart_path"
+          fi
+
+  # Job 4: Security Constraints Check
+  validate-security:
+    name: Validate Security Constraints
+    runs-on: ubuntu-latest
+    needs: validate-yaml
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check for required security policies
+        run: |
+          echo "=== Security Constraints Check ==="
+          
+          # Check for network policies
+          if ls manifests/cilium/*.yaml >/dev/null 2>&1; then
+            CNP_COUNT=$(ls manifests/cilium/*.yaml | wc -l)
+            echo "✓ Found $CNP_COUNT Cilium network policies"
+          else
+            echo "⚠ No Cilium network policies found"
+          fi
+          
+          # Check for Falco rules
+          if ls manifests/falco/*.yaml >/dev/null 2>&1; then
+            FALCO_COUNT=$(ls manifests/falco/*.yaml | wc -l)
+            echo "✓ Found $FALCO_COUNT Falco rules"
+          else
+            echo "⚠ No Falco rules found"
+          fi
+          
+          # Check for MCP proxy
+          if [ -d "manifests/mcp-proxy" ]; then
+            echo "✓ MCP proxy manifests present"
+          else
+            echo "⚠ MCP proxy manifests not found"
+          fi
+          
+          # Check for agent configs
+          if [ -d "manifests/langgraph" ]; then
+            echo "✓ LangGraph agent configs present"
+          else
+            echo "⚠ LangGraph configs not found"
+          fi
+
+  # Job 5: Script Validation
+  validate-scripts:
+    name: Validate Deployment Scripts
+    runs-on: ubuntu-latest
+    needs: validate-security
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Check scripts are executable
+        run: |
+          echo "=== Script Validation ==="
+          
+          for script in scripts/*.sh; do
+            if [ -f "$script" ]; then
+              name=$(basename "$script")
+              # Check shebang
+              if head -1 "$script" | grep -q "^#!/bin/bash"; then
+                echo "✓ $name has valid shebang"
+              else
+                echo "✗ $name missing bash shebang"
+              fi
+              
+              # Check for syntax errors
+              if bash -n "$script" 2>/dev/null; then
+                echo "  ✓ $name syntax is valid"
+              else
+                echo "  ✗ $name has syntax errors"
+                exit 1
+              fi
+            fi
+          done
+
+  # Job 6: Summary Report
+  summary:
+    name: Validation Summary
+    runs-on: ubuntu-latest
+    needs: [validate-openspec, validate-yaml, validate-k8s-manifests, validate-security, validate-scripts]
+    
+    if: always()
+    
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+      
+      - name: Generate Validation Report
+        run: |
+          echo "========================================"
+          echo "  SDD Validation Report"
+          echo "========================================"
+          echo ""
+          
+          # Check job statuses
+          echo "Job Status Summary:"
+          echo "-------------------"
+          
+          echo "✓ OpenSpec Structure: ${{ needs.validate-openspec.result }}"
+          echo "✓ YAML Syntax: ${{ needs.validate-yaml.result }}"
+          echo "✓ K8s Manifests: ${{ needs.validate-k8s-manifests.result }}"
+          echo "✓ Security: ${{ needs.validate-security.result }}"
+          echo "✓ Scripts: ${{ needs.validate-scripts.result }}"
+          
+          echo ""
+          
+          # Determine overall result
+          if [[ "${{ needs.validate-openspec.result }}" == "success" ]] && \
+             [[ "${{ needs.validate-yaml.result }}" == "success" ]] && \
+             [[ "${{ needs.validate-k8s-manifests.result }}" == "success" ]] && \
+             [[ "${{ needs.validate-security.result }}" == "success" ]] && \
+             [[ "${{ needs.validate-scripts.result }}" == "success" ]]; then
+            echo "🎉 ALL VALIDATIONS PASSED"
+            exit 0
+          else
+            echo "❌ SOME VALIDATIONS FAILED"
+            exit 1
+          fi

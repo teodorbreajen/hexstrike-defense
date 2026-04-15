@@ -1,0 +1,95 @@
+# Phase 2: Network Security - Default Deny Egress
+# CiliumClusterwideNetworkPolicy for hexstrike-defense
+# 
+# PURPOSE: Block ALL egress traffic by default
+# SCOPE: Applies to all workloads in hexstrike namespaces
+# 
+# This is the foundation of Zero Trust networking.
+# All outbound connections must be explicitly whitelisted.
+
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: hexstrike-default-deny-egress
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: default-deny
+    hexstrike.io/version: "1.0"
+spec:
+  # Select all endpoints in the cluster
+  endpointSelector:
+    matchLabels:
+      # Apply to all namespaces managed by hexstrike
+      # Individual policies will be more specific
+      reserved:host
+    matchExpressions:
+      - key: kubernetes.io/os
+        operator: NotIn
+        values:
+          - windows
+
+  # DENY all egress by default
+  # This rule blocks everything not explicitly allowed
+  egressDeny:
+    # Block all TCP
+    - toPorts:
+        - port: "0"
+          protocol: TCP
+    # Block all UDP  
+    - toPorts:
+        - port: "0"
+          protocol: UDP
+    # Block ICMP
+    - toEntities:
+        - remote-node
+
+---
+# Per-namespace default deny for agent workloads
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-agent-default-deny
+  namespace: hexstrike-agents
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: default-deny
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      # Apply to all pods in hexstrike-agents namespace
+      # Use more specific labels for your agent pods
+      {}
+  
+  egressDeny:
+    # Block all outbound connections
+    - toPorts:
+        - port: "0"
+          protocol: TCP
+    - toPorts:
+        - port: "0"
+          protocol: UDP
+
+---
+# Per-namespace default deny for system namespace
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-system-default-deny
+  namespace: hexstrike-system
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: default-deny
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      {}
+  
+  egressDeny:
+    - toPorts:
+        - port: "0"
+          protocol: TCP
+    - toPorts:
+        - port: "0"
+          protocol: UDP

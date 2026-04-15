@@ -1,0 +1,30 @@
+apiVersion: v2
+name: hexstrike-defense
+description: |
+  HexStrike Defense-in-Depth Architecture
+  A 7-layer security framework for containing and governing autonomous AI agents.
+
+type: application
+version: 0.1.0
+appVersion: "1.0.0"
+
+keywords:
+  - security
+  - defense-in-depth
+  - ai-agent
+  - kubernetes
+  - cilium
+  - falco
+  - mcp
+  - zero-trust
+
+maintainers:
+  - name: HexStrike Security Team
+    email: security@hexstrike.ai
+
+dependencies:
+  # Phase 1: Core infrastructure
+  # Phase 2: Network Security (Cilium) - managed via CRDs
+  # Phase 3: Runtime Security (Falco)
+  # Phase 4: Semantic Firewall (MCP Proxy)
+  # Phase 5: Observability (LangGraph)

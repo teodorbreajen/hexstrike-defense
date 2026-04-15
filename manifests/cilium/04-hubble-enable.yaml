@@ -1,0 +1,240 @@
+# Phase 2: Network Security - Hubble Observability
+# Cilium Hubble Configuration for hexstrike-defense
+#
+# PURPOSE: Enable Hubble for network flow logging and security auditing
+# SCOPE: hexstrike namespaces
+#
+# Hubble provides:
+# - Real-time network flow visibility
+# - Security event detection
+# - DNS query logging
+# - Flow aggregation and analysis
+
+---
+# Enable Hubble flow logging for hexstrike-agents namespace
+apiVersion: cilium.io/v2
+kind: CiliumEndpointSelector
+metadata:
+  name: hexstrike-agent-hubble-enable
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble-flow-logging
+    hexstrike.io/version: "1.0"
+
+---
+# Hubble Relay and UI configuration
+# Apply this to enable centralized flow collection
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: hubble-relay-config
+  namespace: hexstrike-monitoring
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble
+    hexstrike.io/version: "1.0"
+data:
+  # Hubble server address
+  hubble.server.address: "hubble-relay:4435"
+  
+  # TLS configuration
+  # NOTE: Configure TLS certs via Kubernetes secrets in production
+  # tls.ca.cert: /etc/hubble/tls/ca.crt
+  # tls.server.cert: /etc/hubble/tls/server.crt
+  # tls.server.key: /etc/hubble/tls/server.key
+
+---
+# Flow logging configuration for security auditing
+# This enables verbose logging for all hexstrike namespaces
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: hexstrike-hubble-flow-logging
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble
+    hexstrike.io/policy-type: flow-logging
+    hexstrike.io/version: "1.0"
+spec:
+  # Apply to all hexstrike namespaces
+  nodeSelector:
+    matchLabels:
+      # Apply to all nodes (Cilium managed)
+      kubernetes.io/os: linux
+  
+  # Ingress policy with flow logging
+  ingress:
+    - fromEntities:
+        - cluster
+        - host
+      toPorts:
+        - port: "2375"
+          protocol: TCP
+        - port: "2376"
+          protocol: TCP
+  
+  # Egress policy with flow logging
+  egress:
+    - toEntities:
+        - remote-node
+      toPorts:
+        - port: "8472"
+          protocol: UDP  # VXLAN
+
+---
+# DNS flow logging for security analysis
+# Records all DNS queries made by hexstrike workloads
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-dns-flow-logging
+  namespace: hexstrike-agents
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble
+    hexstrike.io/policy-type: dns-logging
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      {}
+  
+  egress:
+    - toServices:
+        - k8sServiceName: coredns
+          namespace: kube-system
+      toPorts:
+        - port: "53"
+          protocol: UDP
+          rules:
+            dns:
+              # Allow all DNS queries but log them
+              # Hubble will capture these for analysis
+              allow: ["*"]
+
+---
+# Hubble Relay Deployment (for centralized flow collection)
+# Enable this if you need to aggregate flows from multiple clusters
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: hubble-relay
+  namespace: hexstrike-monitoring
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble-relay
+    hexstrike.io/version: "1.0"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: hubble-relay
+  template:
+    metadata:
+      labels:
+        app: hubble-relay
+        hexstrike.io/layer: observability
+        hexstrike.io/component: hubble-relay
+    spec:
+      serviceAccountName: hubble-relay
+      containers:
+        - name: hubble-relay
+          image: quay.io/cilium/hubble-relay:latest
+          imagePullPolicy: IfNotPresent
+          command:
+            - hubble-relay
+          args:
+            - serve
+          ports:
+            - name: grpc
+              containerPort: 4245
+              protocol: TCP
+            - name: metrics
+              containerPort: 9091
+              protocol: TCP
+          resources:
+            requests:
+              cpu: 100m
+              memory: 64Mi
+            limits:
+              cpu: 500m
+              memory: 256Mi
+          livenessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
+            initialDelaySeconds: 5
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /healthz
+              port: 9091
+            initialDelaySeconds: 5
+            periodSeconds: 5
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: hubble-relay
+  namespace: hexstrike-monitoring
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble-relay
+spec:
+  type: ClusterIP
+  ports:
+    - name: grpc
+      port: 4435
+      targetPort: 4245
+      protocol: TCP
+  selector:
+    app: hubble-relay
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: hubble-relay
+  namespace: hexstrike-monitoring
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: hubble-relay
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble-relay
+rules:
+  - apiGroups:
+      - ""
+    resources:
+      - pods
+    verbs:
+      - get
+      - list
+      - watch
+  - apiGroups:
+      - cilium.io
+    resources:
+      - ciliumendpoints
+      - ciliumidentities
+      - ciliumendpointslices
+    verbs:
+      - get
+      - list
+      - watch
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: hubble-relay
+  labels:
+    hexstrike.io/layer: observability
+    hexstrike.io/component: hubble-relay
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: hubble-relay
+subjects:
+  - kind: ServiceAccount
+    name: hubble-relay
+    namespace: hexstrike-monitoring

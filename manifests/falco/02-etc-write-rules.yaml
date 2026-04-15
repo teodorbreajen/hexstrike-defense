@@ -1,0 +1,140 @@
+# Phase 3: Runtime Security - /etc and /usr Write Detection Rules
+# Falco rules for detecting modifications to critical system directories
+# 
+# PURPOSE: Detect writes to sensitive system directories inside containers
+# SCOPE: Applies to all containers with write access to /etc and /usr/bin
+# 
+# Writes to these directories are often indicators of:
+# - Privilege escalation attempts
+# - Credential manipulation (/etc/passwd, /etc/shadow)
+# - Backdoor installation (/usr/bin)
+# - Configuration tampering
+
+# Custom list of sensitive directories to monitor
+- list: protected_directories
+  items: [/etc, /usr/bin, /usr/sbin, /bin, /sbin, /lib, /lib64]
+
+# Custom list of sensitive files that should never be modified
+- list: protected_files
+  items:
+    - /etc/passwd
+    - /etc/shadow
+    - /etc/group
+    - /etc/gshadow
+    - /etc/sudoers
+    - /etc/hosts
+    - /etc/resolv.conf
+    - /etc/crontab
+    - /etc/shell
+    - /etc/profile
+    - /etc/bashrc
+
+# Rule: Write below /etc or /usr/bin
+# Detects file creation/modification in sensitive directories
+- rule: Write below /etc or /usr/bin
+  desc: File written below binary directories (user=%user.name command=%proc.cmdline file=%fd.name)
+  condition: >
+    write_above_etc 
+    or write_below_bin
+  output: >
+    File written to sensitive directory
+    (user=%user.name
+    user_loginuid=%user.loginuid
+    process=%proc.name
+    parent=%proc.pname
+    command=%proc.cmdline
+    file=%fd.name
+    container_name=%container.name
+    container_id=%container.id
+    node=%hostname)
+  priority: WARNING
+  tags: [filesystem, sensitive-dirs, warning, hexstrike]
+  source: syscalls
+
+# Rule: Write to protected system files
+# Detects modification of critical system configuration files
+- rule: Write to protected system files
+  desc: Modification of critical system file detected
+  condition: >
+    open_write 
+    and container
+    and fd.name in (protected_files)
+  output: >
+    Protected system file modified
+    (user=%user.name
+    user_loginuid=%user.loginuid
+    process=%proc.name
+    parent=%proc.pname
+    command=%proc.cmdline
+    file=%fd.name
+    container_name=%container.name
+    container_id=%container.id
+    node=%hostname)
+  priority: CRITICAL
+  tags: [filesystem, protected-files, critical, hexstrike]
+  source: syscalls
+
+# Rule: Password file access attempt
+# Detects attempts to read /etc/shadow (password hashes)
+- rule: Password file access attempt
+  desc: Attempt to read password file contents
+  condition: >
+    open_read
+    and container
+    and (fd.name = "/etc/shadow" or fd.name = "/etc/sudoers" or fd.name = "/etc/gshadow")
+  output: >
+    Sensitive file access attempt
+    (user=%user.name
+    user_loginuid=%user.loginuid
+    process=%proc.name
+    parent=%proc.pname
+    command=%proc.cmdline
+    file=%fd.name
+    container_name=%container.name
+    container_id=%container.id
+    node=%hostname)
+  priority: CRITICAL
+  tags: [filesystem, credential-theft, critical, hexstrike]
+  source: syscalls
+
+# Rule: Binary directory symlink creation
+# Detects symlink creation in system binary directories
+- rule: Create symlink in binary directory
+  desc: Symlink created in system binary directory
+  condition: >
+    create_symlink
+    and container
+    and (fd.name startswith "/usr/bin" or fd.name startswith "/bin" or fd.name startswith "/sbin")
+  output: >
+    Symlink created in binary directory
+    (user=%user.name
+    process=%proc.name
+    command=%proc.cmdline
+    symlink_target=%fd.name
+    container_name=%container.name
+    container_id=%container.id
+    node=%hostname)
+  priority: WARNING
+  tags: [filesystem, symlink, warning, hexstrike]
+  source: syscalls
+
+# Rule: /etc directory enumeration
+# Detects enumeration of /etc directory contents
+- rule: Enumerate /etc directory
+  desc: Enumeration of /etc directory detected
+  condition: >
+    open_directory
+    and container
+    and (fd.directory = "/etc" or fd.directory = "/etc/")
+  output: >
+    /etc directory enumeration
+    (user=%user.name
+    process=%proc.name
+    command=%proc.cmdline
+    directory=%fd.directory
+    container_name=%container.name
+    container_id=%container.id
+    node=%hostname)
+  priority: INFO
+  tags: [filesystem, enumeration, info, hexstrike]
+  source: syscalls

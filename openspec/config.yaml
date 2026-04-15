@@ -1,0 +1,46 @@
+# openspec/config.yaml - hexstrike-defense
+schema: spec-driven
+
+context: |
+  Tech stack: Kubernetes, LangGraph, MCP, eBPF, Go/TypeScript
+  Architecture: Multi-layer defense-in-depth (SDD governance → Semantic firewall → Runtime detection → Network containment)
+  Testing: Infrastructure project - e2e testing via k8s test frameworks (kind/minikube)
+  Mode: Greenfield project
+
+strict_tdd: false  # Infrastructure project - traditional TDD not applicable
+
+rules:
+  proposal:
+    - Include rollback plan for risky changes
+    - Identify affected components/manifests
+  specs:
+    - Use Given/When/Then format for scenarios
+    - Use RFC 2119 keywords (MUST, SHALL, SHOULD, MAY)
+  design:
+    - Include architecture diagrams for defense layers
+    - Document architecture decisions with rationale
+  tasks:
+    - Group tasks by phase (infrastructure, implementation, testing)
+    - Use hierarchical numbering (1.1, 1.2, etc.)
+    - Keep tasks small enough to complete in one session
+  apply:
+    - Follow Kubernetes best practices
+    - Load relevant coding skills for Go/TS components
+  verify:
+    - Run integration tests with kind cluster if available
+    - Compare implementation against every spec scenario
+  archive:
+    - Warn before merging destructive deltas (large removals)
+
+# Testing Capabilities (detected manually for greenfield)
+testing:
+  test_runner: "To be determined - k8s e2e frameworks"
+  layers:
+    unit: "TBD - Go tests for components"
+    integration: "TBD - k8s integration tests"
+    e2e: "TBD - kind/minikube clusters"
+  coverage: "TBD"
+  tools:
+    linter: "TBD - golangci-lint / eslint"
+    type_checker: "TBD - go vet / tsc --noEmit"
+    formatter: "TBD - gofmt / prettier"

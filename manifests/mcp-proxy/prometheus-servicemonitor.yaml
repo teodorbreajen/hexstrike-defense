@@ -1,0 +1,52 @@
+# Prometheus ServiceMonitor for MCP Policy Proxy
+# Enables metrics scraping by Prometheus operator
+---
+apiVersion: monitoring.coreos.com/v1
+kind: ServiceMonitor
+metadata:
+  name: mcp-policy-proxy-metrics
+  namespace: hexstrike-monitoring
+  labels:
+    app: mcp-policy-proxy
+    release: prometheus  # Matches Prometheus operator selector
+spec:
+  selector:
+    matchLabels:
+      app: mcp-policy-proxy
+  endpoints:
+    - port: metrics
+      interval: 15s  # Scrape interval
+      path: /metrics
+      scheme: http
+      tlsConfig:
+        insecureSkipVerify: false
+      relabelings:
+        # Add namespace label
+        - sourceLabels: [__meta_kubernetes_namespace]
+          targetLabel: namespace
+        # Add service name label
+        - sourceLabels: [__meta_kubernetes_service_name]
+          targetLabel: service
+        # Add pod name label
+        - sourceLabels: [__meta_kubernetes_pod_name]
+          targetLabel: pod
+  namespaceSelector:
+    matchNames:
+      - hexstrike-system
+  sampleLimit: 10000
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: mcp-policy-proxy-metrics
+  namespace: hexstrike-system
+  labels:
+    app: mcp-policy-proxy
+spec:
+  selector:
+    app: mcp-policy-proxy
+  ports:
+    - name: metrics
+      port: 8080
+      targetPort: 8080
+      protocol: TCP

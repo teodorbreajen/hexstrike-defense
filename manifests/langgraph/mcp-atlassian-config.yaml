@@ -1,0 +1,116 @@
+# Atlassian MCP Integration Template
+# Model Context Protocol server for Confluence/Jira access
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-atlassian-config
+  namespace: hexstrike-agents
+  labels:
+    app: hexstrike-defense
+    component: mcp-integration
+data:
+  config.yaml: |
+    # =============================================================================
+    # ATLASSIAN MCP CONFIGURATION
+    # =============================================================================
+    mcpServers:
+      atlassian:
+        command: npx
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-atlassian"
+        env:
+          CONFLUENCE_URL: "${CONFLUENCE_URL}"
+          CONFLUENCE_USER: "${CONFLUENCE_USER}"
+          CONFLUENCE_API_TOKEN: "${CONFLUENCE_API_TOKEN}"
+          JIRA_URL: "${JIRA_URL}"
+          JIRA_USER: "${JIRA_USER}"
+          JIRA_API_TOKEN: "${JIRA_API_TOKEN}"
+        autoStart: true
+        timeout: 30
+        
+    # =============================================================================
+    # CONFLUENCE SETTINGS
+    # =============================================================================
+    confluence:
+      enabled: true
+      spaces:
+        - space_key: "SEC"
+          name: "Security Team"
+          description: "Security documentation"
+          cache_ttl: 3600
+          
+        - space_key: "DEVOPS"
+          name: "DevOps"
+          description: "Infrastructure docs"
+          cache_ttl: 3600
+          
+      # Rate limiting configuration
+      rate_limit:
+        maxResults: 10
+        requests_per_minute: 60
+        burst: 20
+        
+      # Cache configuration
+      cache:
+        enabled: true
+        max_entries: 100
+        ttl_seconds: 1800
+        
+      # Available tools
+      tools:
+        - getConfluenceSpaces
+        - getPagesInConfluenceSpace
+        - getConfluencePage
+        - searchConfluence
+        - createConfluencePage
+        - updateConfluencePage
+        
+    # =============================================================================
+    # JIRA SETTINGS
+    # =============================================================================
+    jira:
+      enabled: false  # Disabled by default
+      projects:
+        - key: "HEX"
+          name: "Hexstrike"
+          
+      rate_limit:
+        maxResults: 10
+        requests_per_minute: 10
+        
+    # =============================================================================
+    # SECURITY CONSTRAINTS
+    # =============================================================================
+    security:
+      # Whitelist allowed operations
+      allowed_operations:
+        read_spaces: true
+        read_pages: true
+        search: true
+        create_pages: false
+        update_pages: false
+        delete_pages: false
+        
+      # Block sensitive content
+      block_patterns:
+        - "password"
+        - "secret"
+        - "token"
+        - "credential"
+        - "api_key"
+        
+      # Audit logging
+      audit:
+        enabled: true
+        log_all_operations: true
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: atlassian-credentials
+  namespace: hexstrike-agents
+type: Opaque
+stringData:
+  CONFLUENCE_URL: ""    # Set via kubectl -n hexstrike-agents create secret generic atlassian-credentials --from-literal=URL=''

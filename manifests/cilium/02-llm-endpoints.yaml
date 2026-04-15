@@ -1,0 +1,103 @@
+# Phase 2: Network Security - LLM API Endpoint Whitelist
+# CiliumClusterwideNetworkPolicy for hexstrike-defense
+#
+# PURPOSE: Whitelist specific LLM provider endpoints
+# SCOPE: hexstrike-agents namespace
+#
+# ALLOWED ENDPOINTS:
+# - api.anthropic.com (Claude)
+# - api.openai.com (GPT)
+# - api.github.com (Copilot)
+#
+# All other external destinations remain blocked.
+
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-agent-llm-endpoints
+  namespace: hexstrike-agents
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: llm-whitelist
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      {}
+  
+  egress:
+    # ==========================================================================
+    # ANTHROPIC CLAUDE API
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: api.anthropic.com
+        - matchPattern: "*.api.anthropic.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+    # ==========================================================================
+    # OPENAI GPT API
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: api.openai.com
+        - matchPattern: "*.api.openai.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+    # ==========================================================================
+    # GITHUB COPILOT API
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: api.github.com
+        - matchPattern: "*.api.github.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+    # ==========================================================================
+    # GITHUB GENERAL (for Copilot authentication)
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: github.com
+        - matchPattern: "*.github.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+---
+# LLM endpoints for hexstrike-system (if needed for monitoring)
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-system-llm-endpoints
+  namespace: hexstrike-system
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: llm-whitelist
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      # Only apply to monitoring/logging agents
+      component: monitoring
+  
+  egress:
+    - toFQDNs:
+        - matchName: api.anthropic.com
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+    
+    - toFQDNs:
+        - matchName: api.openai.com
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true

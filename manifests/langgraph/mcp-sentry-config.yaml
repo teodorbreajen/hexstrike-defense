@@ -1,0 +1,62 @@
+# Sentry MCP Integration Template
+# Model Context Protocol server for Sentry error tracking
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: mcp-sentry-config
+  namespace: hexstrike-agents
+  labels:
+    app: hexstrike-defense
+    component: mcp-integration
+data:
+  config.yaml: |
+    # =============================================================================
+    # SENTRY MCP CONFIGURATION
+    # =============================================================================
+    mcpServers:
+      sentry:
+        command: npx
+        args:
+          - "-y"
+          - "@modelcontextprotocol/server-sentry"
+        env:
+          SENTRY_DSN: "${SENTRY_DSN}"
+          SENTRY_ORG: "${SENTRY_ORG}"
+          SENTRY_AUTH_TOKEN: "${SENTRY_AUTH_TOKEN}"
+        autoStart: true
+        timeout: 30
+        healthCheck:
+          enabled: true
+          endpoint: "/health"
+          interval: 60
+          
+    # =============================================================================
+    # SENTRY PROJECT MAPPING
+    # =============================================================================
+    projects:
+      - name: "hexstrike-defense"
+        dsn_env: "SENTRY_DSN"
+        environment: "production"
+        release_tracking: true
+        traces_sample_rate: 0.1
+        
+    # =============================================================================
+    # METRICS RECORDING
+    # =============================================================================
+    metrics:
+      record_errors: true
+      record_warnings: false
+      sample_rate: 1.0
+      max_batch_size: 100
+      flush_interval: 5
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: sentry-credentials
+  namespace: hexstrike-agents
+type: Opaque
+stringData:
+  SENTRY_DSN: ""  # Set via kubectl -n hexstrike-agents create secret generic sentry-credentials --from-literal=DSN=''
+  SENTRY_ORG: ""    # Set via kubectl -n hexstrike-agents create secret generic sentry-credentials --from-literal=ORG=''

@@ -1,0 +1,223 @@
+# HexStrike Defense Architecture - Helm Values
+# Phase 1: Feature Flags per Layer
+
+# Global settings
+global:
+  # Enable/disable entire defense system
+  enabled: true
+  
+  # Target namespace for agent workloads
+  agentNamespace: hexstrike-agents
+  
+  # Logging verbosity (0=off, 1=basic, 2=verbose)
+  logLevel: 1
+  
+  # Image pull secrets (if private registry)
+  imagePullSecrets: []
+
+# =============================================================================
+# LAYER 1: Network Security (Cilium)
+# =============================================================================
+cilium:
+  enabled: true
+  description: "eBPF-based network policy enforcement with default-deny egress"
+  
+  # Default-deny egress policy
+  defaultDeny:
+    enabled: true
+    # Apply to all namespaces or specific ones
+    scope: clusterwide  # options: clusterwide, namespaced
+    namespaces: []      # If empty, applies to all namespaces
+  
+  # DNS-based filtering
+  dns:
+    enabled: true
+    # Allow only kube-dns/CoreDNS for DNS resolution
+    allowKubeDNS: true
+    # Block all external DNS except whitelisted domains
+    blockExternalDNS: true
+  
+  # LLM API endpoint whitelisting
+  llmEndpoints:
+    enabled: true
+    endpoints:
+      # Claude (Anthropic)
+      - host: "api.anthropic.com"
+        ports: [443]
+        description: "Anthropic Claude API"
+      # OpenAI GPT
+      - host: "api.openai.com"
+        ports: [443]
+        description: "OpenAI GPT API"
+      # GitHub Copilot
+      - host: "api.github.com"
+        ports: [443]
+        description: "GitHub Copilot API"
+  
+  # Allowed target domains (Rules of Engagement)
+  targetDomains:
+    enabled: true
+    # Only these domains are allowed for outbound traffic
+    allowed:
+      # Cloud providers
+      - "*.amazonaws.com"
+      - "*.googleapis.com"
+      - "*.azure.com"
+      # CI/CD and DevOps
+      - "*.github.com"
+      - "*.gitlab.com"
+      - "*.jenkins.io"
+      # Monitoring (optional)
+      - "*.datadoghq.com"
+      - "*.grafana.net"
+  
+  # Hubble observability
+  hubble:
+    enabled: true
+    # Enable flow logging for security auditing
+    enableFlowLogging: true
+    # Export flows to Hubble UI
+    enableUI: false  # Requires Hubble UI deployment
+    # Retain flows for X days
+    retentionDays: 7
+
+# =============================================================================
+# LAYER 2: Runtime Security (Falco)
+# =============================================================================
+falco:
+  enabled: true
+  description: "Runtime threat detection via syscall monitoring"
+  
+  # Falco rule sets to enable
+  rules:
+    # Detect shell spawns in agent namespace
+    execveDetection:
+      enabled: true
+      severity: high
+      action: log  # log, warn, kill
+    
+    # Detect /etc modifications
+    etcWriteDetection:
+      enabled: true
+      severity: critical
+      action: log
+    
+    # Detect network anomalies
+    networkAnomalyDetection:
+      enabled: true
+      severity: medium
+      action: log
+  
+  # Talon integration (automatic response)
+  talon:
+    enabled: false  # Requires Talon deployment
+    # Actions to take on high-severity alerts
+    actions:
+      - shell_kill
+      - network_isolate
+  
+  # Container annotations for Falco
+  annotations:
+    enabled: true
+    # Annotations to add to agent containers
+    list:
+      hexstrike.security/falco-enabled: "true"
+      hexstrike.security/runtime-policy: "strict"
+
+# =============================================================================
+# LAYER 3: Semantic Firewall (MCP Policy Proxy)
+# =============================================================================
+mcpProxy:
+  enabled: true
+  description: "JSON-RPC command validation via Lakera AI"
+  
+  # MCP Proxy service configuration
+  service:
+    # Replicas for HA
+    replicas: 2
+    
+    # Resources
+    resources:
+      limits:
+        cpu: "500m"
+        memory: "256Mi"
+      requests:
+        cpu: "100m"
+        memory: "64Mi"
+    
+    # Service configuration
+    serviceType: ClusterIP  # ClusterIP, LoadBalancer
+    port: 8080
+  
+  # Middleware chain
+  middleware:
+    # Authentication
+    auth:
+      enabled: true
+      type: api-key  # api-key, jwt, mtls
+    
+    # Rate limiting
+    rateLimit:
+      enabled: true
+      requestsPerMinute: 100
+      burst: 20
+    
+    # Command validation
+    validation:
+      enabled: true
+      # Lakera API integration
+      lakera:
+        enabled: true
+        # API key secret name (created separately)
+        secretName: lakera-api-key
+        # Confidence threshold (0.0 - 1.0)
+        threshold: 0.7
+        # Block on error (fail closed)
+        failClosed: true
+  
+  # Health check endpoints
+  health:
+    readinessEnabled: true
+    livenessEnabled: true
+
+# =============================================================================
+# LAYER 4: Observability (LangGraph)
+# =============================================================================
+langgraph:
+  enabled: false  # Configuration-only, no deployment
+  description: "LangGraph agent security constraints"
+  
+  # Agent security constraints
+  agent:
+    # MCP server endpoints
+    mcpServers:
+      sentry:
+        enabled: false
+        # MCP config template path
+        configPath: manifests/langgraph/mcp-sentry-config.yaml
+      atlassian:
+        enabled: false
+        configPath: manifests/langgraph/mcp-atlassian-config.yaml
+    
+    # Execution constraints
+    constraints:
+      maxExecutionTime: "30m"
+      maxToolCalls: 100
+      requireHumanApproval: false  # For sensitive operations
+
+# =============================================================================
+# HELM Chart Settings
+# =============================================================================
+# Common labels and annotations
+nameOverride: ""
+fullnameOverride: ""
+
+# Pod scheduling
+nodeSelector: {}
+tolerations: []
+affinity: {}
+
+# Pod disruption budget
+podDisruptionBudget:
+  enabled: true
+  minAvailable: 1

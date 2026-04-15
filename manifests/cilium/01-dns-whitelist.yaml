@@ -1,0 +1,102 @@
+# Phase 2: Network Security - DNS Whitelist
+# CiliumClusterwideNetworkPolicy for hexstrike-defense
+#
+# PURPOSE: Allow ONLY kube-dns/CoreDNS for DNS resolution
+# SCOPE: All workloads in hexstrike namespaces
+#
+# This ensures agents can resolve names but cannot bypass
+# DNS-based filtering or use external DNS resolvers.
+
+apiVersion: cilium.io/v2
+kind: CiliumClusterwideNetworkPolicy
+metadata:
+  name: hexstrike-dns-whitelist
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: dns-whitelist
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      reserved:host
+    matchExpressions:
+      - key: kubernetes.io/os
+        operator: NotIn
+        values:
+          - windows
+
+  # Allow egress to DNS service
+  egress:
+    # Allow kube-dns service (default CoreDNS)
+    - toServices:
+        - k8sServiceName: coredns
+          namespace: kube-system
+      toPorts:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+
+---
+# Per-namespace DNS policy for hexstrike-agents
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-agent-dns
+  namespace: hexstrike-agents
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: dns-whitelist
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      {}
+  
+  egress:
+    # Allow DNS queries ONLY to kube-dns/CoreDNS
+    - toServices:
+        - k8sServiceName: coredns
+          namespace: kube-system
+      toPorts:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+    
+    # Allow DNS to kube-dns service directly (cluster IP)
+    - toEndpoints:
+        - matchLabels:
+            k8s-app: kube-dns
+          namespace: kube-system
+      toPorts:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP
+
+---
+# Per-namespace DNS policy for hexstrike-system
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-system-dns
+  namespace: hexstrike-system
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: dns-whitelist
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      {}
+  
+  egress:
+    - toServices:
+        - k8sServiceName: coredns
+          namespace: kube-system
+      toPorts:
+        - port: "53"
+          protocol: UDP
+        - port: "53"
+          protocol: TCP

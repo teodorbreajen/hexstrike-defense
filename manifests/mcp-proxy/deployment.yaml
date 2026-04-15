@@ -1,0 +1,73 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: mcp-policy-proxy
+  namespace: hexstrike-system
+  labels:
+    app: mcp-policy-proxy
+    component: semantic-firewall
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: mcp-policy-proxy
+  template:
+    metadata:
+      labels:
+        app: mcp-policy-proxy
+        component: semantic-firewall
+      annotations:
+        prometheus.io/scrape: "true"
+        prometheus.io/port: "8080"
+        prometheus.io/path: "/metrics"
+    spec:
+      containers:
+        - name: proxy
+          image: ghcr.io/hexstrike/mcp-policy-proxy:v1.0.0
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 8080
+              name: http
+              protocol: TCP
+          envFrom:
+            - configMapRef:
+                name: mcp-proxy-config
+          env:
+            - name: LAKERA_API_KEY
+              valueFrom:
+                secretKeyRef:
+                  name: mcp-proxy-secrets
+                  key: lakera-api-key
+                  optional: true
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 8080
+            initialDelaySeconds: 10
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /ready
+              port: 8080
+            initialDelaySeconds: 5
+            periodSeconds: 10
+            timeoutSeconds: 3
+            failureThreshold: 3
+      affinity:
+        podAntiAffinity:
+          preferredDuringSchedulingIgnoredDuringExecution:
+            - weight: 100
+              podAffinityTerm:
+                labelSelector:
+                  matchLabels:
+                    app: mcp-policy-proxy
+                topologyKey: kubernetes.io/hostname

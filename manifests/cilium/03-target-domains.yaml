@@ -1,0 +1,164 @@
+# Phase 2: Network Security - Target Domains Whitelist
+# CiliumClusterwideNetworkPolicy for hexstrike-defense
+#
+# PURPOSE: Allow only domains specified in Rules of Engagement (RoE)
+# SCOPE: hexstrike-agents namespace
+#
+# This policy complements the LLM whitelist with additional
+# allowed domains for cloud providers, CI/CD, and DevOps tools.
+
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: hexstrike-agent-target-domains
+  namespace: hexstrike-agents
+  labels:
+    hexstrike.io/layer: network-security
+    hexstrike.io/policy-type: target-domains
+    hexstrike.io/version: "1.0"
+spec:
+  endpointSelector:
+    matchLabels:
+      {}
+  
+  egress:
+    # ==========================================================================
+    # CLOUD PROVIDERS - AWS
+    # ==========================================================================
+    - toFQDNs:
+        - matchPattern: "*.amazonaws.com"
+        - matchPattern: "*.aws.amazon.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+        - port: "80"
+          protocol: TCP
+
+    # ==========================================================================
+    # CLOUD PROVIDERS - GCP
+    # ==========================================================================
+    - toFQDNs:
+        - matchPattern: "*.googleapis.com"
+        - matchPattern: "*.gcp.googleapis.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+        - port: "80"
+          protocol: TCP
+
+    # ==========================================================================
+    # CLOUD PROVIDERS - Azure
+    # ==========================================================================
+    - toFQDNs:
+        - matchPattern: "*.azure.com"
+        - matchPattern: "*.windows.net"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+        - port: "80"
+          protocol: TCP
+
+    # ==========================================================================
+    # CI/CD - GitHub
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: github.com
+        - matchPattern: "*.github.com"
+        - matchPattern: "*.githubusercontent.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+        - port: "22"
+          protocol: TCP
+
+    # ==========================================================================
+    # CI/CD - GitLab
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: gitlab.com
+        - matchPattern: "*.gitlab.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+        - port: "22"
+          protocol: TCP
+
+    # ==========================================================================
+    # CI/CD - Jenkins
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: jenkins.io
+        - matchPattern: "*.jenkins.io"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+    # ==========================================================================
+    # OBSERVABILITY - Datadog
+    # ==========================================================================
+    - toFQDNs:
+        - matchPattern: "*.datadoghq.com"
+        - matchPattern: "*.datadoghq.eu"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+    # ==========================================================================
+    # OBSERVABILITY - Grafana
+    # ==========================================================================
+    - toFQDNs:
+        - matchPattern: "*.grafana.net"
+        - matchPattern: "*.grafana.com"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+    # ==========================================================================
+    # OBSERVABILITY - Prometheus/Alertmanager (if self-hosted)
+    # ==========================================================================
+    - toCIDR:
+        - 10.0.0.0/8    # RFC 1918 - Private
+        - 172.16.0.0/12 # RFC 1918 - Private
+        - 192.168.0.0/16 # RFC 1918 - Private
+      toPorts:
+        - port: "9090"
+          protocol: TCP
+        - port: "9093"
+          protocol: TCP
+        - port: "9094"
+          protocol: TCP
+
+    # ==========================================================================
+    # CONTAINER REGISTRIES
+    # ==========================================================================
+    - toFQDNs:
+        - matchName: gcr.io
+        - matchPattern: "*.gcr.io"
+        - matchName: docker.io
+        - matchPattern: "*.docker.io"
+        - matchName: quay.io
+        - matchPattern: "*.quay.io"
+        - matchName: ghcr.io
+        - matchPattern: "*.ghcr.io"
+      toPorts:
+        - port: "443"
+          protocol: TCP
+          terminateTLS: true
+
+    # ==========================================================================
+    # KUBERNETES API SERVER (for in-cluster communication)
+    # ==========================================================================
+    - toServices:
+        - k8sServiceName: kubernetes
+          namespace: default
+      toPorts:
+        - port: "443"
+          protocol: TCP

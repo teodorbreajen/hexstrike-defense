@@ -1,0 +1,160 @@
+# Phase 3: Runtime Security - HexStrike Container Annotations
+# Pod annotations for Falco and Talon integration
+# 
+# PURPOSE: Define standard annotations for hexstrike pods to enable
+#          runtime security monitoring and automated response
+# SCOPE: All workloads in hexstrike namespaces
+# 
+# These annotations tell Falco and Talon how to handle security events
+# for each pod. They enable fine-grained control over response actions.
+
+# Annotation specification for hexstrike pods
+annotations:
+  # =============================================================================
+  # Falco Integration Annotations
+  # =============================================================================
+
+  # Primary action to take when Falco detects an event
+  # Values: terminate | kill | pause | log | ignore
+  # - terminate: Kill the pod immediately (CRITICAL events)
+  # - kill: Send SIGTERM to the container
+  # - pause: Pause the container for forensics
+  # - log: Log the event only
+  # - ignore: Do not alert on this pod
+  security.cyber.com/falco/action: "terminate"
+
+  # Priority threshold for alerts
+  # Values: CRITICAL | WARNING | INFO
+  # Only events at or above this priority will trigger actions
+  security.cyber.com/falco/priority: "CRITICAL"
+
+  # Enable/disable Falco monitoring for this pod
+  # Values: "true" | "false"
+  security.cyber.com/falco/enabled: "true"
+
+  # Custom Falco rules to apply to this pod
+  # Format: comma-separated list of rule names
+  security.cyber.com/falco/rules: ""
+
+  # Exclude specific syscalls from monitoring
+  # Format: comma-separated list of syscall names
+  security.cyber.com/falco/exclude_syscalls: ""
+
+  # =============================================================================
+  # Talon Automated Response Annotations  
+  # =============================================================================
+
+  # Enable Talon automated response
+  # Values: "true" | "false"
+  security.cyber.com/talon/enabled: "true"
+
+  # Talon response action
+  # Values: terminate | isolate | labelize | capture
+  # See talon.yaml for action details
+  security.cyber.com/talon/action: "terminate"
+
+  # Quarantine labels to apply if Talon responds
+  # Format: JSON map of label key-value pairs
+  security.cyber.com/talon/quarantine-labels: |
+    {"security.hexstrike.io/quarantined": "true"}
+
+  # Grace period before taking action (Go duration format)
+  # Allows for brief exceptions during known operations
+  security.cyber.com/talon/grace-period: "0s"
+
+  # =============================================================================
+  # HexStrike Layer Integration
+  # =============================================================================
+
+  # HexStrike defense layer identifier
+  # Values: network | runtime | semantic | observability
+  hexstrike.io/layer: "runtime"
+
+  # Workload classification
+  # Values: agent | proxy | system | monitoring
+  hexstrike.io/workload-type: "agent"
+
+  # Policy enforcement level
+  # Values: strict | standard | permissive
+  hexstrike.io/policy-level: "strict"
+
+  # =============================================================================
+  # Network Security Integration
+  # =============================================================================
+
+  # Network policy enforcement mode
+  # Values: enforced | monitored | disabled
+  hexstrike.io/network-enforcement: "enforced"
+
+  # Allowed egress destinations (CIDR notation)
+  # Empty means only whitelisted destinations allowed
+  hexstrike.io/allowed-egress: ""
+
+  # =============================================================================
+  # Observability Annotations
+  # =============================================================================
+
+  # Enable Prometheus metrics scraping
+  # Values: "true" | "false"
+  prometheus.io/scrape: "true"
+
+  # Prometheus metrics port
+  prometheus.io/port: "8080"
+
+  # Prometheus metrics path
+  prometheus.io/path: "/metrics"
+
+  # Enable Hubble network observability
+  # Values: "true" | "false"
+  io.cilium.enable-l7-proxy: "true"
+
+---
+# Example: Agent Pod with runtime security annotations
+# Apply these annotations to your hexstrike-ai agent pods
+apiVersion: v1
+kind: Pod
+metadata:
+  name: hexstrike-agent-example
+  namespace: hexstrike-agents
+  annotations:
+    # Falco configuration
+    security.cyber.com/falco/action: "terminate"
+    security.cyber.com/falco/priority: "CRITICAL"
+    security.cyber.com/falco/enabled: "true"
+    
+    # Talon configuration  
+    security.cyber.com/talon/enabled: "true"
+    security.cyber.com/talon/action: "terminate"
+    security.cyber.com/talon/grace-period: "0s"
+    security.cyber.com/talon/quarantine-labels: |
+      {"security.hexstrike.io/quarantined": "true", "security.hexstrike.io/quarantine-reason": "{{ .Rule }}"}
+    
+    # HexStrike classification
+    hexstrike.io/layer: "runtime"
+    hexstrike.io/workload-type: "agent"
+    hexstrike.io/policy-level: "strict"
+    
+    # Network security
+    hexstrike.io/network-enforcement: "enforced"
+    
+    # Observability
+    prometheus.io/scrape: "true"
+    prometheus.io/port: "8080"
+    prometheus.io/path: "/metrics"
+    io.cilium.enable-l7-proxy: "true"
+spec:
+  # ... pod spec would go here
+
+---
+# Patch annotation for existing pods
+# Use kubectl annotate to add these to existing deployments:
+#
+# kubectl annotate pod <pod-name> \
+#   security.cyber.com/falco/action=terminate \
+#   security.cyber.com/falco/priority=CRITICAL \
+#   security.cyber.com/talon/enabled=true \
+#   security.cyber.com/talon/action=terminate \
+#   hexstrike.io/layer=runtime \
+#   hexstrike.io/workload-type=agent \
+#   hexstrike.io/policy-level=strict \
+#   --overwrite

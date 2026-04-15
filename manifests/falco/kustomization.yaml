@@ -1,0 +1,124 @@
+# Phase 3: Runtime Security - Kustomize Overlay
+# Kustomize configuration for Falco + Talon deployment
+# 
+# PURPOSE: Enable flexible deployment of runtime security components
+#          with environment-specific overrides
+# SCOPE: Cluster-wide runtime security deployment
+# 
+# This kustomization supports:
+# - Base configuration for all environments
+# - Environment overlays (dev, staging, prod)
+# - Selective component deployment
+
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+# Metadata
+metadata:
+  name: hexstrike-runtime-security
+  annotations:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/kustomize-version: "1.0"
+
+# Common labels applied to all resources
+commonLabels:
+  hexstrike.io/layer: runtime-security
+  hexstrike.io/component: falco-talon
+  hexstrike.io/managed-by: kustomize
+
+# Namespace for all resources
+namespace: hexstrike-monitoring
+
+# Resources to include
+resources:
+  # Talon webhook configuration and deployment
+  - talon.yaml
+
+# ConfigMap generator for custom Falco rules
+configMapGenerator:
+  # Generate execve detection rules ConfigMap
+  - name: falco-execve-rules
+    behavior: create
+    files:
+      - rules=01-execve-rules.yaml
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        hexstrike.io/layer: runtime-security
+        hexstrike.io/rules-type: execve-detection
+
+  # Generate etc-write detection rules ConfigMap  
+  - name: falco-etc-write-rules
+    behavior: create
+    files:
+      - rules=02-etc-write-rules.yaml
+    options:
+      disableNameSuffixHash: true
+      annotations:
+        hexstrike.io/layer: runtime-security
+        hexstrike.io/rules-type: etc-write-detection
+
+  # Generate annotations ConfigMap for easy pod patching
+  - name: hexstrike-pod-annotations
+    behavior: create
+    files:
+      - annotations=annotations.yaml
+    options:
+      disableNameSuffixHash: true
+
+# Patches for environment-specific overrides
+patches:
+  # Production: More aggressive termination
+  - patch: |-
+      - op: replace
+        path: /data/talon.yaml
+        value: |
+          # Talon Configuration for Production
+          actions:
+            terminate:
+              enabled: true
+              priority_threshold: "WARNING"
+              grace_period: 0s
+            isolate:
+              enabled: true
+            labelize:
+              enabled: true
+              scale_replicas: 0
+          dry_run: false
+    target:
+      kind: ConfigMap
+      name: talon-config
+
+# Replicas configuration
+replicas:
+  - name: talon
+    count: 2
+
+# Common annotations for all resources
+commonAnnotations:
+  hexstrike.io/deployed-by: kustomize
+  hexstrike.io/deployment-time: ""
+
+# Images to update
+images:
+  - name: hexstrike/talon
+    newTag: "latest"
+  - name: falcosecurity/falco
+    newTag: "latest"
+
+# Vars for substitution
+vars:
+  - name: TALON_RESPONSE_TIMEOUT
+    objref:
+      kind: ConfigMap
+      name: talon-config
+      apiVersion: v1
+      fieldpath: data.talon.yaml
+    default: "200ms"
+  - name: HEXSTRIKE_NAMESPACE
+    objref:
+      kind: ConfigMap  
+      name: talon-config
+      apiVersion: v1
+      fieldpath: metadata.namespace
+    default: "hexstrike-monitoring"

@@ -1,0 +1,140 @@
+# LangGraph Agent Security Configuration
+# defines security constraints enforced for all langgraph agents in hexstrike-defense
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: agent-security-config
+  namespace: hexstrike-agents
+  labels:
+    app: hexstrike-defense
+    component: agent-config
+data:
+  security-constraints.yaml: |
+    # =============================================================================
+    # SECURITY CONSTRAINTS - System Prompt Injection
+    # =============================================================================
+    system_prompt: |
+      You are operating within hexstrike-defense, a security-hardened LLM agents environment.
+      
+      MANDATORY SECURITY RULES:
+      1. NEVER execute commands outside the approved tool whitelist
+      2. NEVER modify system files (/etc, /proc, /sys, /boot)
+      3. NEVER attempt network exfiltration or unauthorized data transfer
+      4. NEVER escalate privileges or attempt container escape
+      5. NEVER ignore security tool warnings (Falco, Cilium, Lakera)
+      
+      ROE (Rules of Engagement):
+      - Approved tools: read_file, write_file, bash (only in /workspace), grep, glob, search
+      - Network: HTTP/HTTPS to whitelisted endpoints only
+      - Max file size: 10MB per operation
+      - Conversation history: Last 20 turns max
+      
+    # =============================================================================
+    # TOOL RESTRICTIONS - Whitelist enforced
+    # =============================================================================
+    allowed_tools:
+      - name: read_file
+        description: "Read files from workspace"
+        max_file_size: 10485760  # 10MB
+        allowed_paths:
+          - /workspace/**
+          - /app/**
+          
+      - name: write_file
+        description: "Write files to workspace"
+        max_file_size: 10485760  # 10MB
+        blocked_paths:
+          - /etc/**
+          - /proc/**
+          - /sys/**
+          - /boot/**
+          - /var/log/**
+          
+      - name: bash
+        description: "Execute shell commands"
+        allowed_commands:
+          - git
+          - npm
+          - node
+          - pip
+          - python
+          - go
+          - cargo
+          - make
+        blocked_commands:
+          - wget
+          - curl
+          - nc
+          - netcat
+          - socat
+          - iptables
+          - ip
+          
+      - name: grep
+        description: "Search file contents"
+        
+      - name: glob
+        description: "Find files by pattern"
+        
+      - name: search
+        description: "Web search"
+        rate_limit: 10/minute
+        
+    # =============================================================================
+    # MAX RETRIES AND TIMEOUTS
+    # =============================================================================
+    max_retries:
+      tool_execution: 3
+      api_call: 2
+      network_request: 3
+      
+    timeouts:
+      tool_execution: 30000  # 30 seconds
+      api_call: 15000      # 15 seconds
+      network_request: 10000 # 10 seconds
+      
+    # =============================================================================
+    # CONVERSATION HISTORY LIMITS
+    # =============================================================================
+    conversation_limits:
+      max_turns: 20
+      max_tokens: 128000
+      retention_hours: 24
+      prune_threshold: 0.9
+      
+    # =============================================================================
+    # CONTENT MODERATION (via Lakera)
+    # =============================================================================
+    content_moderation:
+      enabled: true
+      api_endpoint: "http://mcp-policy-proxy:8080"
+      scan Prompts: true
+      scan_responses: true
+      block_on_fail: true
+      
+    # =============================================================================
+    # NETWORK RESTRICTIONS (via Cilium)
+    # =============================================================================
+    network_policy:
+      enabled: true
+      allowed_egress:
+        - dns+:53/UDP
+        - tcp://api.openai.com:443
+        - tcp://api.anthropic.com:443
+        - tcp://*.langchain.dev:443
+      blocked_egress:
+        - all
+        
+    # =============================================================================
+    # RUNTIME PROTECTION (via Falco)
+    # =============================================================================
+    runtime_protection:
+      enabled: true
+      monitored_syscalls:
+        - execve
+        - write
+        - open
+        - connect
+      alert_on_violation: true
+      block_on_critical: true
