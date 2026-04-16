@@ -32,15 +32,30 @@ rules:
   archive:
     - Warn before merging destructive deltas (large removals)
 
-# Testing Capabilities (detected manually for greenfield)
+# Testing Capabilities (detected 2026-04-16)
 testing:
-  test_runner: "To be determined - k8s e2e frameworks"
+  test_runner: "go test (Go built-in)"
   layers:
-    unit: "TBD - Go tests for components"
-    integration: "TBD - k8s integration tests"
-    e2e: "TBD - kind/minikube clusters"
-  coverage: "TBD"
+    unit: "NOT FOUND - No test files in src/mcp-policy-proxy/"
+    integration: "AVAILABLE - k8s client-go in tests/e2e/framework/"
+    e2e: "AVAILABLE - testify v1.8.4 + k8s client-go"
+  coverage: "AVAILABLE - go test -cover"
   tools:
-    linter: "TBD - golangci-lint / eslint"
-    type_checker: "TBD - go vet / tsc --noEmit"
-    formatter: "TBD - gofmt / prettier"
+    linter: "NOT INSTALLED - golangci-lint"
+    type_checker: "AVAILABLE - go vet"
+    formatter: "AVAILABLE - gofmt"
+
+# Issues Found
+issues:
+  - id: "missing-go-sum"
+    severity: "high"
+    description: "Missing go.sum files in all modules"
+    fix: "Run 'go mod tidy' in each module directory"
+  - id: "no-unit-tests"
+    severity: "medium"
+    description: "No unit tests in main application"
+    fix: "Consider adding unit tests for proxy, rate limiter, metrics"
+  - id: "e2e-deps"
+    severity: "high"
+    description: "E2E tests need dependencies downloaded"
+    fix: "Run 'go mod download' in tests/e2e/"

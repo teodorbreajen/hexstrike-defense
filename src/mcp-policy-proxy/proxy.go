@@ -6,12 +6,19 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"log"
 	"net"
 	"net/http"
+	"strings"
 	"sync"
 	"time"
+
+	"github.com/golang-jwt/jwt/v5"
 )
+
+// Context key for storing correlation ID
+type contextKey string
+
+const correlationIDKey contextKey = "correlation_id"
 
 // ProxyConfig holds all proxy configuration
 type ProxyConfig struct {
@@ -20,6 +27,9 @@ type ProxyConfig struct {
 	RateLimitPerMinute int
 	Timeout            time.Duration
 	AllowedOrigins     []string
+	FailMode           string // "closed" or "open" - fail-closed blocks on Lakera errors
+	MaxBodySize        int64  // Maximum request body size in bytes (default: 1MB)
+	JWTSecret          string // JWT secret for auth validation
 }
 
 // Middleware defines the proxy middleware function signature
@@ -32,6 +42,7 @@ type Proxy struct {
 	rateLimiter     *RateLimiter
 	metrics         *Metrics
 	middlewareChain []Middleware
+	logger          *Logger
 }
 
 // RateLimiter implements a simple token bucket rate limiter
@@ -139,11 +150,12 @@ func NewProxy(config *ProxyConfig, lakeraClient *LakeraClient) *Proxy {
 		lakeraClient: lakeraClient,
 		rateLimiter:  NewRateLimiter(config.RateLimitPerMinute),
 		metrics:      NewMetrics(),
+		logger:       NewLogger("proxy"),
 	}
 
 	// Build middleware chain
 	proxy.middlewareChain = []Middleware{
-		loggingMiddleware,
+		proxy.loggingMiddleware,
 		proxy.rateLimitMiddleware,
 		proxy.authMiddleware,
 		proxy.semanticCheckMiddleware,
@@ -164,19 +176,43 @@ func (p *Proxy) Handler() http.Handler {
 	return handler
 }
 
-// loggingMiddleware logs incoming requests
-func loggingMiddleware(next http.Handler) http.Handler {
+// getCorrelationID extracts correlation ID from context
+func getCorrelationID(ctx context.Context) string {
+	if id, ok := ctx.Value(correlationIDKey).(string); ok {
+		return id
+	}
+	return ""
+}
+
+// loggingMiddleware logs incoming requests with correlation ID
+func (p *Proxy) loggingMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
+
+		// Generate correlation ID for this request
+		correlationID := r.Header.Get("X-Correlation-ID")
+		if correlationID == "" {
+			correlationID = GenerateCorrelationID()
+		}
+
+		// Store in request context
+		ctx := context.WithValue(r.Context(), correlationIDKey, correlationID)
+		r = r.WithContext(ctx)
+
+		// Add correlation ID to response headers
+		w.Header().Set("X-Correlation-ID", correlationID)
+
 		wrapped := &statusWriter{ResponseWriter: w, statusCode: 200}
 
 		next.ServeHTTP(wrapped, r)
 
-		log.Printf("[HTTP] %s %s - %d - %v",
-			r.Method,
-			r.URL.Path,
-			wrapped.statusCode,
-			time.Since(start))
+		p.logger.Info("request completed",
+			WithCorrelationID(correlationID),
+			WithMethod(r.Method),
+			WithPath(r.URL.Path),
+			WithStatusCode(wrapped.statusCode),
+			WithLatency(time.Since(start)),
+		)
 	})
 }
 
@@ -196,6 +232,12 @@ func (p *Proxy) rateLimitMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if !p.rateLimiter.Allow() {
 			p.metrics.RecordRequest(false, 0, http.StatusTooManyRequests)
+			p.logger.Warn("rate limit exceeded",
+				WithCorrelationID(getCorrelationID(r.Context())),
+				WithMethod(r.Method),
+				WithPath(r.URL.Path),
+				WithStatusCode(http.StatusTooManyRequests),
+			)
 			p.sendErrorResponse(w, r, http.StatusTooManyRequests, "Rate limit exceeded")
 			return
 		}
@@ -203,24 +245,93 @@ func (p *Proxy) rateLimitMiddleware(next http.Handler) http.Handler {
 	})
 }
 
-// authMiddleware validates authentication (placeholder - implement based on needs)
+// authMiddleware validates JWT Bearer token authentication
 func (p *Proxy) authMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		// For now, allow all requests
-		// In production, implement JWT/API key validation
-		// Check Authorization header
-		authHeader := r.Header.Get("Authorization")
-		if authHeader == "" && r.URL.Path != "/health" && r.URL.Path != "/metrics" {
-			// Allow health/metrics without auth, require for others
-			// log.Printf("[Auth] No authorization header for %s", r.URL.Path)
+		// Unprotected endpoints
+		if r.URL.Path == "/health" || r.URL.Path == "/metrics" || r.URL.Path == "/ready" {
+			next.ServeHTTP(w, r)
+			return
 		}
+
+		correlationID := getCorrelationID(r.Context())
+
+		// Get Authorization header
+		authHeader := r.Header.Get("Authorization")
+		if authHeader == "" {
+			p.logger.Warn("missing authorization header",
+				WithCorrelationID(correlationID),
+				WithPath(r.URL.Path),
+				WithStatusCode(http.StatusUnauthorized),
+			)
+			p.sendErrorResponse(w, r, http.StatusUnauthorized, "Missing Authorization header")
+			return
+		}
+
+		// Validate Bearer token format
+		if !strings.HasPrefix(authHeader, "Bearer ") {
+			p.logger.Warn("invalid authorization format",
+				WithCorrelationID(correlationID),
+				WithPath(r.URL.Path),
+				WithStatusCode(http.StatusUnauthorized),
+			)
+			p.sendErrorResponse(w, r, http.StatusUnauthorized, "Invalid Authorization format - expected Bearer token")
+			return
+		}
+
+		tokenString := strings.TrimPrefix(authHeader, "Bearer ")
+
+		// Validate JWT
+		if err := p.validateJWT(tokenString); err != nil {
+			p.logger.Warn("jwt validation failed",
+				WithCorrelationID(correlationID),
+				WithPath(r.URL.Path),
+				WithStatusCode(http.StatusUnauthorized),
+				WithError(err),
+			)
+			p.sendErrorResponse(w, r, http.StatusUnauthorized, "Invalid or expired token")
+			return
+		}
+
+		p.logger.Debug("jwt validated",
+			WithCorrelationID(correlationID),
+			WithPath(r.URL.Path),
+		)
 		next.ServeHTTP(w, r)
 	})
+}
+
+// validateJWT validates a JWT token and returns an error if invalid
+func (p *Proxy) validateJWT(tokenString string) error {
+	// If no JWT secret configured, skip validation (backward compatibility)
+	if p.config.JWTSecret == "" {
+		return nil
+	}
+
+	token, err := jwt.Parse(tokenString, func(token *jwt.Token) (interface{}, error) {
+		// Validate signing method
+		if _, ok := token.Method.(*jwt.SigningMethodHMAC); !ok {
+			return nil, fmt.Errorf("unexpected signing method: %v", token.Header["alg"])
+		}
+		return []byte(p.config.JWTSecret), nil
+	})
+
+	if err != nil {
+		return fmt.Errorf("failed to parse token: %w", err)
+	}
+
+	if !token.Valid {
+		return fmt.Errorf("invalid token")
+	}
+
+	return nil
 }
 
 // semanticCheckMiddleware validates tool calls using Lakera
 func (p *Proxy) semanticCheckMiddleware(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		correlationID := getCorrelationID(r.Context())
+
 		// Only check JSON-RPC requests (POST with JSON content)
 		if r.Method != http.MethodPost {
 			next.ServeHTTP(w, r)
@@ -234,9 +345,27 @@ func (p *Proxy) semanticCheckMiddleware(next http.Handler) http.Handler {
 			return
 		}
 
+		// Check body size limit
+		if r.ContentLength > p.config.MaxBodySize {
+			p.logger.Warn("request body size exceeds limit",
+				WithCorrelationID(correlationID),
+				WithExtra("content_length", r.ContentLength),
+				WithExtra("max_size", p.config.MaxBodySize),
+				WithStatusCode(http.StatusRequestEntityTooLarge),
+			)
+			p.metrics.RecordRequest(false, 0, http.StatusRequestEntityTooLarge)
+			p.sendErrorResponse(w, r, http.StatusRequestEntityTooLarge,
+				fmt.Sprintf("Request body exceeds maximum size of %d bytes", p.config.MaxBodySize))
+			return
+		}
+
 		// Read the request body
 		body, err := io.ReadAll(r.Body)
 		if err != nil {
+			p.logger.Error("failed to read request body",
+				WithCorrelationID(correlationID),
+				WithError(err),
+			)
 			p.sendErrorResponse(w, r, http.StatusBadRequest, "Failed to read request body")
 			return
 		}
@@ -245,7 +374,10 @@ func (p *Proxy) semanticCheckMiddleware(next http.Handler) http.Handler {
 		parsed, err := ParseJSONRPC(body)
 		if err != nil {
 			// If it's not a valid JSON-RPC, forward anyway (might be raw MCP)
-			log.Printf("[Semantic] Failed to parse JSON-RPC: %v - forwarding anyway", err)
+			p.logger.Debug("failed to parse JSON-RPC, forwarding anyway",
+				WithCorrelationID(correlationID),
+				WithError(err),
+			)
 			r.Body = io.NopCloser(bytes.NewReader(body))
 			next.ServeHTTP(w, r)
 			return
@@ -255,6 +387,11 @@ func (p *Proxy) semanticCheckMiddleware(next http.Handler) http.Handler {
 		if parsed.IsBatch {
 			for _, batchReq := range parsed.BatchReqs {
 				if allowed, reason := p.checkBatchRequest(&batchReq); !allowed {
+					p.logger.Warn("batch request blocked",
+						WithCorrelationID(correlationID),
+						WithExtra("reason", reason),
+						WithStatusCode(http.StatusForbidden),
+					)
 					p.metrics.RecordRequest(false, 0, http.StatusForbidden)
 					p.sendErrorResponse(w, r, http.StatusForbidden,
 						fmt.Sprintf("Blocked: %s", reason))
@@ -282,18 +419,48 @@ func (p *Proxy) semanticCheckMiddleware(next http.Handler) http.Handler {
 
 		allowed, score, reason, err := p.lakeraClient.CheckToolCall(ctx, toolName, args)
 		if err != nil {
-			log.Printf("[Semantic] Lakera check error: %v", err)
-			// On error, allow (graceful degradation)
+			p.logger.Error("lakera check error",
+				WithCorrelationID(correlationID),
+				WithExtra("tool", toolName),
+				WithError(err),
+			)
+			// Fail-closed: block request if Lakera fails
+			if p.config.FailMode == "closed" {
+				p.logger.Warn("fail-closed mode: blocking request due to Lakera error",
+					WithCorrelationID(correlationID),
+					WithExtra("tool", toolName),
+					WithStatusCode(http.StatusServiceUnavailable),
+				)
+				p.metrics.RecordRequest(false, 0, http.StatusServiceUnavailable)
+				p.sendErrorResponse(w, r, http.StatusServiceUnavailable,
+					"Semantic check unavailable - request blocked for security")
+				return
+			}
+			// Fail-open: allow request (backward compatible)
+			p.logger.Warn("fail-open mode: allowing request despite Lakera error",
+				WithCorrelationID(correlationID),
+				WithExtra("tool", toolName),
+			)
 		}
 
 		if !allowed {
-			log.Printf("[Semantic] Blocked tool '%s' - score: %d, reason: %s",
-				toolName, score, reason)
+			p.logger.Warn("tool blocked by semantic firewall",
+				WithCorrelationID(correlationID),
+				WithExtra("tool", toolName),
+				WithExtra("score", score),
+				WithExtra("reason", reason),
+				WithStatusCode(http.StatusForbidden),
+			)
 			p.metrics.RecordRequest(false, 0, http.StatusForbidden)
 			p.sendErrorResponse(w, r, http.StatusForbidden,
 				fmt.Sprintf("Tool '%s' blocked by semantic firewall: %s", toolName, reason))
 			return
 		}
+
+		p.logger.Debug("tool call allowed by semantic check",
+			WithCorrelationID(correlationID),
+			WithExtra("tool", toolName),
+		)
 
 		// Request allowed, forward to MCP backend
 		r.Body = io.NopCloser(bytes.NewReader(body))
@@ -322,13 +489,18 @@ func (p *Proxy) checkBatchRequest(req *ParsedRequest) (bool, string) {
 // forwardToMCP forwards the request to the MCP backend
 func (p *Proxy) forwardToMCP(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	correlationID := getCorrelationID(r.Context())
 
 	// Create backend URL
 	url := p.config.MCPBackendURL + r.URL.Path
 
-	// Create proxy request
+	// Create proxy request with context containing correlation ID
 	proxyReq, err := http.NewRequestWithContext(r.Context(), r.Method, url, r.Body)
 	if err != nil {
+		p.logger.Error("failed to create proxy request",
+			WithCorrelationID(correlationID),
+			WithError(err),
+		)
 		p.sendErrorResponse(w, r, http.StatusInternalServerError, "Failed to create proxy request")
 		return
 	}
@@ -338,6 +510,11 @@ func (p *Proxy) forwardToMCP(w http.ResponseWriter, r *http.Request) {
 		if k != "Host" {
 			proxyReq.Header[k] = v
 		}
+	}
+
+	// Forward correlation ID to MCP backend if not already present
+	if proxyReq.Header.Get("X-Correlation-ID") == "" {
+		proxyReq.Header.Set("X-Correlation-ID", correlationID)
 	}
 
 	// Use the same transport with timeout
@@ -353,7 +530,11 @@ func (p *Proxy) forwardToMCP(w http.ResponseWriter, r *http.Request) {
 
 	resp, err := client.Do(proxyReq)
 	if err != nil {
-		log.Printf("[Proxy] Backend error: %v", err)
+		p.logger.Error("backend error",
+			WithCorrelationID(correlationID),
+			WithExtra("backend_url", p.config.MCPBackendURL),
+			WithError(err),
+		)
 		p.sendErrorResponse(w, r, http.StatusBadGateway, "MCP backend unavailable")
 		return
 	}
@@ -367,7 +548,10 @@ func (p *Proxy) forwardToMCP(w http.ResponseWriter, r *http.Request) {
 	// Copy response body
 	body, err := io.ReadAll(resp.Body)
 	if err != nil {
-		log.Printf("[Proxy] Failed to read response body: %v", err)
+		p.logger.Error("failed to read response body",
+			WithCorrelationID(correlationID),
+			WithError(err),
+		)
 		p.sendErrorResponse(w, r, http.StatusInternalServerError, "Failed to read response")
 		return
 	}
@@ -378,11 +562,20 @@ func (p *Proxy) forwardToMCP(w http.ResponseWriter, r *http.Request) {
 	// Record metrics
 	latency := time.Since(start)
 	p.metrics.RecordRequest(true, latency, resp.StatusCode)
+
+	p.logger.Debug("response forwarded from backend",
+		WithCorrelationID(correlationID),
+		WithStatusCode(resp.StatusCode),
+		WithLatency(latency),
+	)
 }
 
 // sendErrorResponse sends a JSON-RPC error response
 func (p *Proxy) sendErrorResponse(w http.ResponseWriter, r *http.Request, statusCode int, message string) {
+	correlationID := getCorrelationID(r.Context())
+
 	w.Header().Set("Content-Type", "application/json")
+	w.Header().Set("X-Correlation-ID", correlationID)
 
 	// If original request was a JSON-RPC request, return JSON-RPC error
 	// Otherwise return plain HTTP error
@@ -396,6 +589,8 @@ func (p *Proxy) sendErrorResponse(w http.ResponseWriter, r *http.Request, status
 // GetMetricsHandler returns the metrics as JSON
 func (p *Proxy) GetMetricsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
+		correlationID := getCorrelationID(r.Context())
+
 		total, blocked, allowed, avgLatency, statusCodes := p.metrics.GetMetrics()
 
 		metrics := map[string]interface{}{
@@ -406,6 +601,10 @@ func (p *Proxy) GetMetricsHandler() http.HandlerFunc {
 			"lakera_blocks":    blocked,
 			"status_codes":     statusCodes,
 		}
+
+		p.logger.Debug("metrics requested",
+			WithCorrelationID(correlationID),
+		)
 
 		w.Header().Set("Content-Type", "application/json")
 		json.NewEncoder(w).Encode(metrics)

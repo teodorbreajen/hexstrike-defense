@@ -31,6 +31,11 @@ type Config struct {
 
 	// Proxy
 	ProxyTimeout int `json:"proxy_timeout"` // seconds
+
+	// Security
+	FailMode    string `json:"fail_mode"`     // "closed" or "open" - fail-closed blocks on Lakera errors
+	MaxBodySize int64  `json:"max_body_size"` // Maximum request body size in bytes
+	JWTSecret   string `json:"jwt_secret"`    // JWT secret for auth validation
 }
 
 // loadConfig loads configuration from environment variables
@@ -43,6 +48,9 @@ func loadConfig() *Config {
 		LakeraTimeout:      5,
 		RateLimitPerMinute: getEnvInt("RATE_LIMIT_PER_MINUTE", 60),
 		ProxyTimeout:       30,
+		FailMode:           getEnv("LAKERA_FAIL_MODE", "closed"),  // Fail-closed by default for security
+		MaxBodySize:        getEnvInt64("MAX_BODY_SIZE", 1048576), // 1MB default
+		JWTSecret:          getEnv("JWT_SECRET", ""),
 	}
 
 	return config
@@ -58,6 +66,16 @@ func getEnv(key, defaultValue string) string {
 func getEnvInt(key string, defaultValue int) int {
 	if value := os.Getenv(key); value != "" {
 		var intVal int
+		if _, err := fmt.Sscanf(value, "%d", &intVal); err == nil {
+			return intVal
+		}
+	}
+	return defaultValue
+}
+
+func getEnvInt64(key string, defaultValue int64) int64 {
+	if value := os.Getenv(key); value != "" {
+		var intVal int64
 		if _, err := fmt.Sscanf(value, "%d", &intVal); err == nil {
 			return intVal
 		}
@@ -162,6 +180,9 @@ func main() {
 		MCPBackendURL:      config.MCPBackendURL,
 		RateLimitPerMinute: config.RateLimitPerMinute,
 		Timeout:            time.Duration(config.ProxyTimeout) * time.Second,
+		FailMode:           config.FailMode,
+		MaxBodySize:        config.MaxBodySize,
+		JWTSecret:          config.JWTSecret,
 	}
 
 	// Create proxy

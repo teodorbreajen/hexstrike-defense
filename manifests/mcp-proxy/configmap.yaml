@@ -14,3 +14,7 @@ data:
   RATE_LIMIT_PER_MINUTE: "60"
   LOG_LEVEL: "info"
   PROXY_TIMEOUT: "30"
+  # Phase 3 Hardening - Security Configuration
+  LAKERA_FAIL_MODE: "closed"
+  MAX_BODY_SIZE: "1048576"
+  JWT_SECRET: ""
