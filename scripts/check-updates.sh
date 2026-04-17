@@ -8,102 +8,64 @@ set -euo pipefail
 REPO_OWNER="teodorbreajen"
 REPO_NAME="hexstrike-defense"
 GITHUB_API="https://api.github.com"
-CURRENT_VERSION=$(grep -oP '(?<=version:\s*v)\d+\.\d+\.\d+' CHANGELOG.md 2>/dev/null || echo "unknown")
+
+# Find project root
+PROJECT_ROOT="$(git rev-parse --show-toplevel 2>/dev/null || pwd)"
+cd "$PROJECT_ROOT"
+
+# Get current version from CHANGELOG
+CURRENT_VERSION=$(grep -oP '(?<=## \[)\d+\.\d+\.\d+' CHANGELOG.md 2>/dev/null | head -1 || echo "unknown")
 GO_VERSION="1.21"
 
-# Colors for output
+# Colors
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[1;33m'
 BLUE='\033[0;34m'
-NC='\033[0m' # No Color
+NC='\033[0m'
 
+echo ""
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  HexStrike Defense Update Checker${NC}"
 echo -e "${BLUE}========================================${NC}"
 echo ""
 
-# Function to check GitHub API rate limit
-check_rate_limit() {
-    if [[ -n "${GITHUB_TOKEN:-}" ]]; then
-        RESPONSE=$(curl -s -H "Authorization: Bearer $GITHUB_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            "$GITHUB_API/rate_limit")
-        REMAINING=$(echo "$RESPONSE" | grep -oP '"remaining":\s*\K\d+' | head -1)
-        echo -e "${BLUE}GitHub API Rate Limit: $REMAINING remaining${NC}"
-    fi
-}
-
-# Function to get latest release from GitHub
+# Function to get latest release
 get_latest_release() {
-    local endpoint="$1"
     curl -s -H "Accept: application/vnd.github+json" \
         ${GITHUB_TOKEN:+-H "Authorization: Bearer $GITHUB_TOKEN"} \
-        "$GITHUB_API/repos/$REPO_OWNER/$REPO_NAME/$endpoint" | \
-        grep -oP '"tag_name":\s*"\K[^"]+' | head -1 | sed 's/^v//'
-}
-
-# Function to compare versions
-version_compare() {
-    local v1="$1"
-    local v2="$2"
-    
-    if [[ "$v1" == "$v2" ]]; then
-        echo "equal"
-    elif [[ "$v1" == "unknown" || "$v1" == "" ]]; then
-        echo "unknown"
-    else
-        # Using sort -V for version comparison
-        local highest=$(printf '%s\n%s' "$v1" "$v2" | sort -V | tail -n1)
-        if [[ "$highest" == "$v2" && "$v1" != "$v2" ]]; then
-            echo "update_available"
-        else
-            echo "current"
-        fi
-    fi
+        "$GITHUB_API/repos/$REPO_OWNER/$REPO_NAME/releases/latest" | \
+        grep -oP '"tag_name":\s*"\K[^"]+' | sed 's/^v//' | head -1
 }
 
 # Check 1: Repository Version
 echo -e "${YELLOW}[1/5] Checking repository version...${NC}"
-LATEST_RELEASE=$(get_latest_release "releases/latest")
-if [[ -z "$LATEST_RELEASE" ]]; then
-    LATEST_RELEASE=$(get_latest_release "releases")
-fi
+LATEST_RELEASE=$(get_latest_release || echo "unknown")
 
-if [[ -n "$LATEST_RELEASE" ]]; then
-    VERSION_STATUS=$(version_compare "$CURRENT_VERSION" "$LATEST_RELEASE")
-    case "$VERSION_STATUS" in
-        "update_available")
-            echo -e "${RED}  ⚠ Update available: v$CURRENT_VERSION → v$LATEST_RELEASE${NC}"
-            echo -e "${RED}    Run: gh release create v$LATEST_RELEASE${NC}"
-            ;;
-        "current")
-            echo -e "${GREEN}  ✓ Repository is up to date (v$CURRENT_VERSION)${NC}"
-            ;;
-        *)
-            echo -e "${YELLOW}  ? Could not determine version${NC}"
-            ;;
-    esac
+if [[ "$LATEST_RELEASE" != "unknown" && "$CURRENT_VERSION" != "unknown" ]]; then
+    if [[ "$LATEST_RELEASE" != "$CURRENT_VERSION" ]]; then
+        echo -e "${GREEN}  Current:  v$CURRENT_VERSION${NC}"
+        echo -e "${YELLOW}  Latest:   v$LATEST_RELEASE${NC}"
+        echo -e "${RED}  Update available!${NC}"
+    else
+        echo -e "${GREEN}  ✓ Repository is up to date (v$CURRENT_VERSION)${NC}"
+    fi
 else
-    echo -e "${YELLOW}  ? Could not fetch latest release${NC}"
+    echo -e "${YELLOW}  ? Could not determine version${NC}"
 fi
 echo ""
 
 # Check 2: Go Dependencies
 echo -e "${YELLOW}[2/5] Checking Go dependencies...${NC}"
-cd src/mcp-policy-proxy 2>/dev/null || cd .
+cd "$PROJECT_ROOT/src/mcp-policy-proxy" 2>/dev/null || cd "$PROJECT_ROOT"
 if [[ -f "go.mod" ]]; then
-    echo -e "${BLUE}  Running go mod outdated...${NC}"
-    OUTDATED=$(go list -m -u all 2>/dev/null | grep "\[upgradable\]" | head -10 || true)
+    OUTDATED=$(go list -m -u all 2>/dev/null | grep "\[upgradable\]" || true)
     if [[ -n "$OUTDATED" ]]; then
-        echo -e "${YELLOW}  ⚠ Outdated dependencies found:${NC}"
+        echo -e "${YELLOW}  ⚠ Outdated dependencies:${NC}"
         echo "$OUTDATED" | while read -r line; do
             MODULE=$(echo "$line" | awk '{print $1}')
-            OLD=$(echo "$line" | grep -oP '\bv\K[0-9.]+' | head -1)
-            NEW=$(echo "$line" | grep -oP '\[upgradable\] v\K[0-9.]+' | sed 's/\[upgradable\] //' || echo "latest")
-            echo -e "    ${YELLOW}  - $MODULE: $OLD → $NEW${NC}"
+            echo -e "    ${YELLOW}  - $MODULE${NC}"
         done
-        echo -e "${YELLOW}    Run: go get -u all${NC}"
     else
         echo -e "${GREEN}  ✓ All dependencies are current${NC}"
     fi
@@ -114,66 +76,54 @@ echo ""
 
 # Check 3: Docker Base Image
 echo -e "${YELLOW}[3/5] Checking Docker base image...${NC}"
-if [[ -f "Dockerfile" ]]; then
-    BASE_IMAGE=$(grep -oP 'FROM \K[^ ]+' Dockerfile | head -1 || echo "unknown")
+cd "$PROJECT_ROOT"
+if [[ -f "src/mcp-policy-proxy/Dockerfile" ]]; then
+    BASE_IMAGE=$(grep -oP 'FROM \K[^ ]+' src/mcp-policy-proxy/Dockerfile | head -1 || echo "unknown")
     echo -e "${BLUE}  Current base image: $BASE_IMAGE${NC}"
     
-    # Check for common base images
     if [[ "$BASE_IMAGE" == *"golang"* ]]; then
         IMAGE_GO_VERSION=$(echo "$BASE_IMAGE" | grep -oP '(?<=golang:)[0-9.]+' || echo "unknown")
-        if [[ "$IMAGE_GO_VERSION" != "$GO_VERSION" ]]; then
-            echo -e "${YELLOW}  ⚠ Go version mismatch: image has $IMAGE_GO_VERSION, project uses $GO_VERSION${NC}"
-        else
+        if [[ "$IMAGE_GO_VERSION" == "$GO_VERSION" ]]; then
             echo -e "${GREEN}  ✓ Go version matches ($GO_VERSION)${NC}"
+        else
+            echo -e "${YELLOW}  ⚠ Go version: image has $IMAGE_GO_VERSION, project uses $GO_VERSION${NC}"
         fi
-    fi
-    
-    if [[ "$BASE_IMAGE" == *"alpine"* ]]; then
-        ALPINE_VERSION=$(echo "$BASE_IMAGE" | grep -oP '(?<=alpine:)[0-9.]+' || echo "unknown")
-        echo -e "${BLUE}  Alpine version: $ALPINE_VERSION${NC}"
     fi
 else
     echo -e "${YELLOW}  ? Dockerfile not found${NC}"
 fi
 echo ""
 
-# Check 4: GitHub Actions Workflows
-echo -e "${YELLOW}[4/5] Checking GitHub Actions versions...${NC}"
+# Check 4: GitHub Actions
+echo -e "${YELLOW}[4/5] Checking GitHub Actions...${NC}"
 if [[ -d ".github/workflows" ]]; then
-    echo -e "${BLUE}  Checking for outdated actions...${NC}"
-    # Check for pinned versions vs @master
+    WORKFLOW_COUNT=$(find .github/workflows -name "*.yml" -o -name "*.yaml" 2>/dev/null | wc -l)
+    echo -e "${BLUE}  Total workflows: $WORKFLOW_COUNT${NC}"
+    
+    # Check for unpinned actions
     UNPINNED=$(grep -r "uses:.*@master\|uses:.*@main" .github/workflows/ 2>/dev/null || true)
     if [[ -n "$UNPINNED" ]]; then
-        echo -e "${YELLOW}  ⚠ Found unpinned actions (recommend using @vX or SHA):${NC}"
-        echo "$UNPINNED" | head -5 | while read -r line; do
-            echo -e "    ${YELLOW}  - $(echo "$line" | cut -d: -f2- | xargs)${NC}"
-        done
+        echo -e "${YELLOW}  ⚠ Found unpinned actions (recommend using @vX or SHA)${NC}"
     else
-        echo -e "${GREEN}  ✓ All actions are pinned to versions${NC}"
+        echo -e "${GREEN}  ✓ All actions are pinned${NC}"
     fi
-    
-    # Count workflows
-    WORKFLOW_COUNT=$(find .github/workflows -name "*.yml" -o -name "*.yaml" | wc -l)
-    echo -e "${BLUE}  Total workflows: $WORKFLOW_COUNT${NC}"
 else
     echo -e "${YELLOW}  ? .github/workflows not found${NC}"
 fi
 echo ""
 
-# Check 5: Security Advisories
-echo -e "${YELLOW}[5/5] Checking for security updates...${NC}"
-# Check if dependabot is configured
+# Check 5: Security Configuration
+echo -e "${YELLOW}[5/5] Checking security configuration...${NC}"
 if [[ -f ".github/dependabot.yml" ]]; then
-    echo -e "${GREEN}  ✓ Dependabot is configured${NC}"
+    echo -e "${GREEN}  ✓ Dependabot configured${NC}"
 else
-    echo -e "${RED}  ⚠ Dependabot not configured - recommend adding .github/dependabot.yml${NC}"
+    echo -e "${RED}  ⚠ Dependabot not configured${NC}"
 fi
 
-# Check for CodeQL
 if grep -q "codeql-action" .github/workflows/*.yml 2>/dev/null; then
-    echo -e "${GREEN}  ✓ CodeQL scanning is enabled${NC}"
+    echo -e "${GREEN}  ✓ CodeQL scanning enabled${NC}"
 else
-    echo -e "${YELLOW}  ⚠ CodeQL not found - recommend adding for security scanning${NC}"
+    echo -e "${YELLOW}  ⚠ CodeQL not found${NC}"
 fi
 echo ""
 
@@ -181,25 +131,19 @@ echo ""
 echo -e "${BLUE}========================================${NC}"
 echo -e "${BLUE}  Summary${NC}"
 echo -e "${BLUE}========================================${NC}"
-echo -e "${BLUE}  Current Version: v$CURRENT_VERSION${NC}"
-echo -e "${BLUE}  Latest Release:  v$LATEST_RELEASE${NC}"
+echo -e "  Current Version: v$CURRENT_VERSION"
+echo -e "  Latest Release:  v$LATEST_RELEASE"
 echo ""
 
-# Generate update commands
-if [[ "$VERSION_STATUS" == "update_available" ]]; then
-    echo -e "${GREEN}To update to v$LATEST_RELEASE:${NC}"
-    echo "  1. Create release notes:"
-    echo "     gh release create v$LATEST_RELEASE"
-    echo ""
-    echo "  2. Or create a PR for the update:"
-    echo "     git checkout -b chore/update-to-v$LATEST_RELEASE"
-    echo "     # Update CHANGELOG.md"
-    echo "     git commit -m 'chore: update to v$LATEST_RELEASE'"
-    echo "     git push origin chore/update-to-v$LATEST_RELEASE"
-    echo "     gh pr create"
-    echo ""
-fi
-
-echo -e "${BLUE}To check for dependency updates:${NC}"
-echo "  cd src/mcp-policy-proxy && go get -u all"
+# Commands to run
+echo -e "${BLUE}Commands to update:${NC}"
+echo ""
+echo -e "  ${YELLOW}# Update Go dependencies:${NC}"
+echo -e "  cd src/mcp-policy-proxy && go get -u all && go mod tidy"
+echo ""
+echo -e "  ${YELLOW}# Check for repository updates:${NC}"
+echo -e "  gh release list"
+echo ""
+echo -e "  ${YELLOW}# Update Docker base image:${NC}"
+echo -e "  # Edit src/mcp-policy-proxy/Dockerfile and update golang version"
 echo ""
