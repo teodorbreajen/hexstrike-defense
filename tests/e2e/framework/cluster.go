@@ -42,6 +42,7 @@ func DefaultClusterConfig() *ClusterConfig {
 type Client struct {
 	Clientset *kubernetes.Clientset
 	Config    *ClusterConfig
+	RESTConfig *restclient.Config
 }
 
 // NewClient creates a new Kubernetes client for e2e testing
@@ -70,6 +71,7 @@ func NewClient(cfg *ClusterConfig) (*Client, error) {
 	return &Client{
 		Clientset: clientset,
 		Config:    cfg,
+		RESTConfig: restConfig,
 	}, nil
 }
 
@@ -204,19 +206,19 @@ func (c *Client) ExecInPod(ctx context.Context, namespace, podName, containerNam
 
 	req.VersionedParams(opts, scheme.ParameterCodec)
 
-	exec, err := remotecommand.NewSPDYExecutor(&c.Clientset.RESTClient().Config, "POST", req.URL())
+	exec, err := remotecommand.NewSPDYExecutor(c.RESTConfig, "POST", req.URL())
 	if err != nil {
 		return "", "", fmt.Errorf("failed to create executor: %w", err)
 	}
 
-	var stdout, stderr bytes.Buffer
-	err = exec.StreamWithContext(ctx, &remotecommand.StreamOptions{
-		Stdout: &stdout,
-		Stderr: &stderr,
+	var stdoutBuf, stderrBuf bytes.Buffer
+	err = exec.StreamWithContext(ctx, remotecommand.StreamOptions{
+		Stdout: &stdoutBuf,
+		Stderr: &stderrBuf,
 		Tty:    false,
 	})
 
-	return stdout.String(), stderr.String(), err
+	return stdoutBuf.String(), stderrBuf.String(), err
 }
 
 // Helper to get pointer to int64
