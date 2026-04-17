@@ -1,7 +1,8 @@
 # hexstrike-defense
 
-![CI Tests](https://github.com/hexstrike-ai/hexstrike-defense/actions/workflows/ci.yml/badge.svg)
-![SDD Validate](https://github.com/hexstrike-ai/hexstrike-defense/actions/workflows/sdd-validate.yaml/badge.svg)
+![CI Tests](https://github.com/teodorbreajen/hexstrike-defense/actions/workflows/ci.yml/badge.svg)
+![SDD Validate](https://github.com/teodorbreajen/hexstrike-defense/actions/workflows/sdd-validate.yaml/badge.svg)
+![Security](https://github.com/teodorbreajen/hexstrike-defense/actions/workflows/security.yml/badge.svg)
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](https://golang.org/)
 [![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
 
@@ -9,7 +10,7 @@ Defense-in-Depth architecture for securing autonomous AI agents (hexstrike-ai).
 
 ## Version
 
-**Current**: 1.3.0 (Phase 3 Hardening Complete)
+**Current**: 2.0.0 (Security-Hardened Release)
 
 See `CHANGELOG.md` for full version history.
 
@@ -139,11 +140,21 @@ make docker-run
 
 ## Testing
 
-### Unit Tests (39 tests)
+### Unit Tests (39+ tests)
 
 ```bash
 cd src/mcp-policy-proxy && go test -v ./...
 ```
+
+### Security Testing
+
+The project includes automated security scanning via GitHub Actions:
+
+- **CodeQL**: Static analysis
+- **Gosec**: Go security scanner
+- **Semgrep**: SAST scanning
+- **Trivy**: Container vulnerability scanning
+- **Govulncheck**: Dependency vulnerability scanning
 
 Results documented in `docs/TEST-RESULTS.md`.
 
@@ -157,14 +168,33 @@ cd tests/e2e && go test -v ./...
 
 ## Security
 
-### Security Features (v1.3.0)
+### Security Features (v2.0.0)
 
+#### Authentication & Access Control
+- **JWT Authentication**: Bearer token validation required (HS256/384/512 only)
+- **Algorithm Confusion Protection**: Blocks alg:none and asymmetric algorithm attacks
+
+#### Input Validation
 - **Fail-Closed**: Block requests when Lakera is unavailable
-- **JWT Authentication**: Bearer token validation required
 - **Body Size Limit**: 1MB max (configurable)
-- **Rate Limiting**: 60 req/min default
+- **Input Sanitization**: SSRF, SQL injection, command injection detection
+- **Path Traversal Protection**: Blocks ../ and encoded variants
+
+#### Rate Limiting & DoS Protection
+- **Per-Client Rate Limiting**: Token bucket per client IP
+- **Concurrent Request Limiting**: Max 100 concurrent requests
+- **Batch Request Limits**: Max 10 requests per batch
+
+#### Resilience
+- **Circuit Breaker**: Prevents cascade failures
+- **Retry with Exponential Backoff**: 1s, 2s, 4s retry strategy
+- **Connection Pooling**: Reusable HTTP connections
+- **Dead Letter Queue (DLQ)**: Failed requests stored for replay
+
+#### Observability
 - **Structured Logging**: JSON for SIEM integration
-- **Correlation IDs**: Request tracing
+- **Correlation IDs**: Request tracing with UUID v4
+- **Prometheus Metrics**: Endpoint at /metrics
 
 ### Error Codes
 
