@@ -273,15 +273,19 @@ func main() {
 	flag.Parse()
 
 	if *showVersion {
-		fmt.Println("MCP Policy Proxy v1.3.0")
+		fmt.Println("HexStrike Defense v2.0.0")
 		fmt.Println("Security-hardened semantic firewall for MCP tool calls")
-		fmt.Println("SECURITY: JWT validation, SSRF protection, input sanitization, circuit breaker")
-		fmt.Println("FIX #1: JWT auth disabled warning")
-		fmt.Println("FIX #2: Concurrent request limiting")
-		fmt.Println("FIX #3: Localhost validation")
-		fmt.Println("FIX #4: Connection pooling")
-		fmt.Println("FIX #5: Response body size limit")
-		fmt.Println("FIX #6: Case-insensitive kubernetes check")
+		fmt.Println("")
+		fmt.Println("Security Features:")
+		fmt.Println("  - JWT Bearer authentication (HS256/384/512)")
+		fmt.Println("  - SSRF protection with IP allowlist")
+		fmt.Println("  - Input sanitization & injection prevention")
+		fmt.Println("  - Fail-closed mode by default")
+		fmt.Println("  - Circuit breaker & retry with backoff")
+		fmt.Println("  - Per-client rate limiting")
+		fmt.Println("  - Structured JSON logging")
+		fmt.Println("")
+		fmt.Println("For more info: https://github.com/teodorbreajen/hexstrike-defense")
 		return
 	}
 
@@ -298,7 +302,7 @@ func main() {
 		config.DevMode = true
 	}
 
-	log.Printf("Starting MCP Policy Proxy (Security-Hardened v1.4.0)...")
+	log.Printf("Starting HexStrike Defense v2.0.0")
 	log.Printf("Listen: %s", config.ListenAddr)
 	if config.TLSEnabled {
 		log.Printf("TLS: ENABLED (cert: %s)", config.TLSCertFile)

@@ -1,0 +1,80 @@
+# .goreleaser.yml
+# GoReleaser configuration for HexStrike Defense
+
+project_name: hexstrike-defense
+
+before:
+  hooks:
+    - go mod download
+    - go mod verify
+
+builds:
+  - id: hexstrike-proxy
+    dir: ./src/mcp-policy-proxy
+    main: .
+    binary: hexstrike-proxy
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - linux
+      - darwin
+      - windows
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w
+      - -X main.version={{.Version}}
+      - -X main.commit={{.Commit}}
+      - -X main.date={{.Date}}
+
+archives:
+  - id: default
+    format: tar.gz
+    format_overrides:
+      - goos: windows
+        format: zip
+    files:
+      - README.md
+      - LICENSE
+      - CHANGELOG.md
+    replacements:
+      darwin: macOS
+
+checksum:
+  id: default
+  algorithm: sha256
+
+snapshot:
+  name_template: "{{ .Tag }}-next"
+
+changelog:
+  sort: asc
+  filters:
+    exclude:
+      - '^docs:'
+      - '^test:'
+      - '^chore:'
+      - '^CI'
+
+docker:
+  - id: hexstrike-proxy
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest"
+    dockerfile: ./src/mcp-policy-proxy/Dockerfile
+    ids:
+      - default
+
+docker_manifests:
+  - id: hexstrike-proxy
+    image_templates:
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:{{ .Tag }}"
+      - "ghcr.io/{{ .Env.GITHUB_REPOSITORY }}:latest"
+
+release:
+  github:
+    owner: "{{ .Env.GITHUB_REPOSITORY_OWNER }}"
+    name: "{{ .Env.GITHUB_REPOSITORY_NAME }}"
+  draft: true
+  prerelease: auto

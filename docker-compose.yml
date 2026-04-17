@@ -1,0 +1,58 @@
+version: '3.8'
+
+services:
+  # HexStrike MCP Policy Proxy
+  proxy:
+    build:
+      context: ./src/mcp-policy-proxy
+      dockerfile: Dockerfile
+    ports:
+      - "8080:8080"
+    environment:
+      - MCP_BACKEND_URL=http://mcp-backend:9090
+      - LAKERA_API_URL=https://api.lakera.ai
+      - LAKERA_API_KEY=${LAKERA_API_KEY:-}
+      - LAKERA_THRESHOLD=70
+      - LAKERA_FAIL_MODE=closed
+      - RATE_LIMIT_PER_MINUTE=60
+      - MAX_BODY_SIZE=1048576
+      - JWT_SECRET=${JWT_SECRET:-change-me-in-production}
+      - GIN_MODE=debug
+      - DEV_MODE=true
+      - LOG_LEVEL=info
+    depends_on:
+      - mcp-backend
+    networks:
+      - hexstrike-net
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # Mock MCP Backend for testing
+  mcp-backend:
+    image: nginx:alpine
+    ports:
+      - "9090:80"
+    volumes:
+      - ./tests/fixtures:/usr/share/nginx/html:ro
+    networks:
+      - hexstrike-net
+
+  # Prometheus for metrics
+  prometheus:
+    image: prom/prometheus:latest
+    ports:
+      - "9091:9090"
+    volumes:
+      - ./deploy/prometheus.yml:/etc/prometheus/prometheus.yml:ro
+    depends_on:
+      - proxy
+    networks:
+      - hexstrike-net
+
+networks:
+  hexstrike-net:
+    driver: bridge
