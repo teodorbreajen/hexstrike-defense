@@ -54,25 +54,33 @@ metadata:
     hexstrike.io/layer: observability
     hexstrike.io/component: hubble
     hexstrike.io/policy-type: flow-logging
-    hexstrike.io/version: "1.0"
+    hexstrike.io/version: "1.1"
 spec:
   # Apply to all hexstrike namespaces
   nodeSelector:
     matchLabels:
       # Apply to all nodes (Cilium managed)
       kubernetes.io/os: linux
-  
-  # Ingress policy with flow logging
+   
+  # SECURITY FIX: Removed dangerous Docker socket ports (2375/2376)
+  # These ports provide direct access to Docker daemon and could allow:
+  # - Container escape to host
+  # - Full cluster compromise
+  # - Secret extraction from etcd
+  # If Docker socket access is absolutely required, use TLS-protected port 2376
+  # with mutual TLS authentication, and restrict to specific namespaces only.
+   
+  # Ingress policy with flow logging (restricted to Hubble ports only)
   ingress:
     - fromEntities:
         - cluster
         - host
       toPorts:
-        - port: "2375"
+        - port: "4245"  # Hubble gRPC
           protocol: TCP
-        - port: "2376"
+        - port: "9091"  # Hubble metrics
           protocol: TCP
-  
+   
   # Egress policy with flow logging
   egress:
     - toEntities:

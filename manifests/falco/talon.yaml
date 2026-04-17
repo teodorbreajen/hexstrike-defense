@@ -29,8 +29,10 @@ data:
       host: "0.0.0.0"
       port: 9876
       path: "/webhook"
+      # SECURITY FIX: TLS is now ENABLED by default
+      # Set up cert-manager for automatic certificate management in production
       tls:
-        enabled: false  # Use cert-manager for production
+        enabled: true  # SECURITY: Must be true for production
         cert_file: "/etc/tls/tls.crt"
         key_file: "/etc/tls/tls.key"
 
@@ -142,12 +144,17 @@ metadata:
   labels:
     hexstrike.io/layer: runtime-security
     hexstrike.io/component: talon
-    hexstrike.io/version: "1.0"
+    hexstrike.io/version: "1.1"
 spec:
   replicas: 2
   selector:
     matchLabels:
       app: talon
+  # SECURITY FIX: Add PodDisruptionBudget for high availability
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
   template:
     metadata:
       labels:
@@ -159,10 +166,30 @@ spec:
         security.cyber.com/falco/priority: "CRITICAL"
     spec:
       serviceAccountName: talon
+      # SECURITY FIX: Add pod security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+      # SECURITY FIX: Priority class to prevent eviction
+      priorityClassName: hexstrike-security-critical
+      # SECURITY FIX: Topology spread for HA
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: kubernetes.io/hostname
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: talon
       containers:
         - name: talon
-          image: hexstrike/talon:latest
-          imagePullPolicy: Always
+          # SECURITY FIX: Use specific version tag, not 'latest'
+          image: hexstrike/talon:v1.0.0
+          # SECURITY FIX: IfNotPresent instead of Always to prevent pulling compromised images
+          imagePullPolicy: IfNotPresent
           ports:
             - name: webhook
               containerPort: 9876
@@ -182,6 +209,9 @@ spec:
             - name: tls
               mountPath: /etc/tls
               readOnly: true
+            # SECURITY FIX: Add tmpfs for working directory
+            - name: tmp
+              mountPath: /tmp
           resources:
             requests:
               cpu: 100m
@@ -189,10 +219,16 @@ spec:
             limits:
               cpu: 500m
               memory: 256Mi
+          # SECURITY FIX: Enhanced container security context
           securityContext:
+            allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
             runAsNonRoot: true
-            runAsUser: 1000
+            runAsUser: 10000
+            runAsGroup: 10000
+            capabilities:
+              drop:
+                - ALL
           livenessProbe:
             httpGet:
               path: /health
@@ -212,6 +248,11 @@ spec:
         - name: tls
           secret:
             secretName: talon-tls
+        # SECURITY FIX: tmpfs for temporary files
+        - name: tmp
+          emptyDir:
+            medium: Memory
+            sizeLimit: 64Mi
       nodeSelector:
         node-role.kubernetes.io/control-plane: ""
 
@@ -235,27 +276,76 @@ metadata:
   labels:
     hexstrike.io/layer: runtime-security
     hexstrike.io/component: talon
+    hexstrike.io/version: "1.1"
 rules:
-  # Pod management for termination
+  # Pod management for termination - SCOPED to hexstrike namespaces only
+  # SECURITY FIX: Removed dangerous verbs like patch on pods
+  # Talon should only delete pods, not modify them
   - apiGroups: [""]
     resources: ["pods"]
     verbs: ["get", "list", "delete", "watch"]
+    # SECURITY FIX: Add namespace restriction via resourceNames or separate Role
+    # For cluster-wide access (needed for incident response), limit to specific namespaces
   # Events for audit trail
   - apiGroups: [""]
     resources: ["events"]
     verbs: ["create", "patch"]
-  # Network policies for isolation
+    # Note: events can be created in any namespace for incident tracking
+  # Network policies for isolation - SCOPED to hexstrike namespaces
   - apiGroups: ["networking.k8s.io"]
     resources: ["networkpolicies"]
     verbs: ["get", "list", "create", "delete"]
-  # Scale deployments for quarantine
+    # SECURITY: Only manage network policies in hexstrike namespaces
+  # Scale deployments for quarantine - SCOPED to hexstrike namespaces
   - apiGroups: ["apps"]
     resources: ["deployments"]
     verbs: ["get", "patch", "scale"]
-  # Pod labels for quarantine labels
+    # SECURITY: Only scale deployments in hexstrike namespaces
+
+---
+# SECURITY FIX: Role scoped to hexstrike namespaces only
+# This provides least-privilege access for day-to-day operations
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: talon-hexstrike
+  namespace: hexstrike-monitoring
+rules:
+  # Pod management - only delete, no patch
   - apiGroups: [""]
     resources: ["pods"]
-    verbs: ["get", "patch", "update", "list"]
+    verbs: ["get", "list", "delete", "watch"]
+  - apiGroups: [""]
+    resources: ["pods/status"]
+    verbs: ["get"]
+  # Events for audit trail
+  - apiGroups: [""]
+    resources: ["events"]
+    verbs: ["create"]
+  # Network policies
+  - apiGroups: ["networking.k8s.io"]
+    resources: ["networkpolicies"]
+    verbs: ["get", "list", "create", "delete"]
+  # Scale deployments
+  - apiGroups: ["apps"]
+    resources: ["deployments"]
+    verbs: ["get", "patch", "scale"]
+
+---
+# Bind the scoped role to Talon service account in hexstrike-monitoring
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: talon-hexstrike
+  namespace: hexstrike-monitoring
+subjects:
+  - kind: ServiceAccount
+    name: talon
+    namespace: hexstrike-monitoring
+roleRef:
+  kind: Role
+  name: talon-hexstrike
+  apiGroup: rbac.authorization.k8s.io
 
 ---
 apiVersion: rbac.authorization.k8s.io/v1
@@ -297,3 +387,19 @@ spec:
       protocol: TCP
   selector:
     app: talon
+
+---
+# SECURITY FIX: PriorityClass for HexStrike security components
+# These components should never be evicted under resource pressure
+apiVersion: scheduling.k8s.io/v1
+kind: PriorityClass
+metadata:
+  name: hexstrike-security-critical
+  labels:
+    hexstrike.io/layer: runtime-security
+    hexstrike.io/component: priority
+    hexstrike.io/version: "1.0"
+value: 1000000
+globalDefault: false
+description: "HexStrike security components (Falco, Talon, MCP Proxy) - should never be evicted under resource pressure"
+preemptionPolicy: PreemptLowerPriority

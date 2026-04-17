@@ -110,7 +110,12 @@ func TestProxyHandler_AuthMiddlewareBlocksWithoutTokenOnMCPEndpoint(t *testing.T
 
 // TestProxyHandler_AuthMiddlewareAllowsValidJWT tests that auth middleware allows valid JWT token
 func TestProxyHandler_AuthMiddlewareAllowsValidJWT(t *testing.T) {
-	proxy := createTestProxyWithJWT()
+	proxy := createTestProxyWithConfig(&ProxyConfig{
+		JWTSecret:          "test-secret-key-for-testing",
+		RateLimitPerMinute: 60,
+		MCPBackendURL:      "https://api.external-example.com:443", // Use external URL for SSRF test
+		Timeout:            30 * time.Second,
+	})
 	mux := createTestRouter(proxy)
 
 	// Create a valid JWT token
@@ -124,8 +129,8 @@ func TestProxyHandler_AuthMiddlewareAllowsValidJWT(t *testing.T) {
 
 	// Should either get 200 (forwarded) or 502 (backend unavailable is OK - we're testing auth)
 	// The key is that it's NOT a 401
-	assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusBadGateway,
-		"valid JWT should not be rejected with 401")
+	assert.True(t, w.Code == http.StatusOK || w.Code == http.StatusBadGateway || w.Code == http.StatusServiceUnavailable,
+		"valid JWT should not be rejected with 401, got: %d", w.Code)
 }
 
 // TestProxyHandler_BodySizeLimitReturns413ForOversized tests that body size limit returns 413 for oversized
@@ -323,7 +328,7 @@ func createTestProxy() *Proxy {
 func createTestProxyWithJWT() *Proxy {
 	return createTestProxyWithConfig(&ProxyConfig{
 		RateLimitPerMinute: 60,
-		MCPBackendURL:      "http://localhost:9090",
+		MCPBackendURL:      "https://api.external-example.com:443", // External URL for SSRF tests
 		Timeout:            30 * time.Second,
 		MaxBodySize:        1048576,
 		JWTSecret:          "test-secret-key-for-testing",
@@ -341,8 +346,8 @@ func createTestProxyWithConfig(config *ProxyConfig) *Proxy {
 func createTestRouter(proxy *Proxy) *http.ServeMux {
 	mux := http.NewServeMux()
 
-	// Health endpoints
-	mux.HandleFunc("/health", HealthHandler(nil))
+	// Health endpoints - exposeHealth=true for testing
+	mux.HandleFunc("/health", HealthHandler(nil, true))
 	mux.HandleFunc("/ready", ReadinessHandler())
 
 	// Metrics endpoint

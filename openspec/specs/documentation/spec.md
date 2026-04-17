@@ -126,4 +126,7 @@ The runbook SHALL include complete configuration reference.
 | `LOG_LEVEL` | `info` | Log level: debug/info/warn/error |
 | `MAX_BODY_SIZE` | `1048576` | Max body size (bytes) |
 | `AUTH_ENABLED` | `true` | Enable authentication |
-| `JWT_SECRET` | (required if auth enabled) | JWT signing secret |
+| `JWT_SECRET` | (empty) | **REQUIRED in production** - JWT signing secret |
+| `GIN_MODE` | `debug` | Set to `release` for production (enables JWT fail-hard) |
+| `CORS_ALLOWED_ORIGINS` | (empty) | Comma-separated allowed origins, or "disabled" |
+| `CORS_ALLOW_CREDENTIALS` | `false` | Allow credentials in CORS responses |

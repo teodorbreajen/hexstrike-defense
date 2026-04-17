@@ -1,0 +1,14 @@
+# Binaries
+*.exe
+mcp-policy-proxy
+mcp-policy-proxy-v2
+mcp-policy-proxy-security
+coverage
+
+# Test coverage
+*.out
+
+# IDE
+.idea/
+.vscode/
+*.swp

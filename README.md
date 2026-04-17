@@ -1,5 +1,10 @@
 # hexstrike-defense
 
+![CI Tests](https://github.com/hexstrike-ai/hexstrike-defense/actions/workflows/ci.yml/badge.svg)
+![SDD Validate](https://github.com/hexstrike-ai/hexstrike-defense/actions/workflows/sdd-validate.yaml/badge.svg)
+[![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](https://golang.org/)
+[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
+
 Defense-in-Depth architecture for securing autonomous AI agents (hexstrike-ai).
 
 ## Version

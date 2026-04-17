@@ -1,0 +1,65 @@
+# NetworkPolicy for MCP Policy Proxy
+# Restricts access to the proxy to only authorized namespaces
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-proxy-ingress
+  namespace: hexstrike-system
+  labels:
+    app: mcp-policy-proxy
+    component: semantic-firewall
+    hexstrike.io/layer: network-security
+    hexstrike.io/version: "1.1"
+spec:
+  endpointSelector:
+    matchLabels:
+      app: mcp-policy-proxy
+      component: semantic-firewall
+  
+  # SECURITY: Ingress policy - only allow traffic from authorized sources
+  ingress:
+    # Allow traffic from hexstrike-agents namespace (AI agents)
+    - fromEndpoints:
+        - matchLabels:
+            namespace: hexstrike-agents
+          matchExpressions:
+            - key: app
+              operator: Exists
+      toPorts:
+        - port: "8080"
+          protocol: TCP
+    # Allow traffic from hexstrike-monitoring namespace (health checks, metrics)
+    - fromEndpoints:
+        - matchLabels:
+            namespace: hexstrike-monitoring
+      toPorts:
+        - port: "8080"
+          protocol: TCP
+    # Allow traffic from kube-system (DNS, kubelet)
+    - fromEntities:
+        - kube-apiserver
+      toPorts:
+        - port: "8080"
+          protocol: TCP
+  
+  # SECURITY: Egress policy - allow only required destinations
+  egress:
+    # Allow DNS (required for service discovery)
+    - toServices:
+        - k8sServiceName: coredns
+          namespace: kube-system
+      toPorts:
+        - port: "53"
+          protocol: UDP
+    # Allow HTTPS to external services (Lakera, etc.)
+    - toPorts:
+        - port: "443"
+          protocol: TCP
+      toEntities:
+        - world
+    # Allow HTTP to internal MCP backend
+    - toFQDNs:
+        - pattern: "*.hexstrike-agents.svc.cluster.local"
+      toPorts:
+        - port: "443"
+          protocol: TCP

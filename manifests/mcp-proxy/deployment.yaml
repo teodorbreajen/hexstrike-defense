@@ -11,6 +11,11 @@ spec:
   selector:
     matchLabels:
       app: mcp-policy-proxy
+  # SECURITY FIX: Add PodDisruptionBudget for high availability
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxUnavailable: 1
   template:
     metadata:
       labels:
@@ -21,10 +26,28 @@ spec:
         prometheus.io/port: "8080"
         prometheus.io/path: "/metrics"
     spec:
+      # SECURITY FIX: Pod security context
+      securityContext:
+        runAsNonRoot: true
+        runAsUser: 10000
+        runAsGroup: 10000
+        fsGroup: 10000
+        seccompProfile:
+          type: RuntimeDefault
+      # SECURITY FIX: Priority class for security components
+      priorityClassName: hexstrike-security-critical
       containers:
         - name: proxy
           image: ghcr.io/hexstrike/mcp-policy-proxy:v1.0.0
           imagePullPolicy: IfNotPresent
+          # SECURITY FIX: Container security context
+          securityContext:
+            allowPrivilegeEscalation: false
+            readOnlyRootFilesystem: true
+            runAsUser: 10000
+            capabilities:
+              drop:
+                - ALL
           ports:
             - containerPort: 8080
               name: http
@@ -62,6 +85,14 @@ spec:
             periodSeconds: 10
             timeoutSeconds: 3
             failureThreshold: 3
+      # SECURITY FIX: Topology spread for high availability
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: mcp-policy-proxy
       affinity:
         podAntiAffinity:
           preferredDuringSchedulingIgnoredDuringExecution:

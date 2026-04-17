@@ -8,6 +8,9 @@ import (
 	"strings"
 )
 
+// Ensure fmt is used to avoid unused import warning
+var _ = fmt.Sprintf
+
 // JSONRPCError represents a JSON-RPC 2.0 error object
 type JSONRPCError struct {
 	Code    int    `json:"code"`
@@ -101,7 +104,13 @@ func ParseJSONRPC(data []byte) (*ParsedRequest, error) {
 }
 
 // parseBatchRequest handles batch requests
+// SECURITY FIX: Added batch size limit to prevent memory exhaustion attacks
 func parseBatchRequest(reqs []JSONRPCRequest) (*ParsedRequest, error) {
+	// SECURITY FIX: Limit batch size to prevent DoS
+	if len(reqs) > MaxBatchSize {
+		return nil, newJSONRPCError(InvalidRequestCode, fmt.Sprintf("batch size exceeds maximum of %d", MaxBatchSize))
+	}
+
 	batch := make([]ParsedRequest, 0, len(reqs))
 
 	for i, req := range reqs {
@@ -125,6 +134,7 @@ func parseBatchRequest(reqs []JSONRPCRequest) (*ParsedRequest, error) {
 }
 
 // validateAndExtractRequest validates and extracts data from a JSON-RPC request
+// SECURITY FIX: Added method whitelist to prevent arbitrary method execution
 func validateAndExtractRequest(req JSONRPCRequest) (*ParsedRequest, error) {
 	// Validate jsonrpc version
 	if req.JSONRPC != "2.0" {
@@ -134,6 +144,24 @@ func validateAndExtractRequest(req JSONRPCRequest) (*ParsedRequest, error) {
 	// Validate method presence
 	if req.Method == "" {
 		return nil, newJSONRPCError(InvalidRequestCode, "method field is required")
+	}
+
+	// SECURITY FIX: Method whitelist - only allow known MCP methods
+	// This prevents arbitrary method execution
+	allowedMethods := map[string]bool{
+		"tools/call":     true,
+		"tools/list":     true,
+		"resources/list": true,
+		"resources/read": true,
+		"prompts/list":   true,
+		"prompts/get":    true,
+		"initialize":     true,
+		"initialized":    true,
+		"shutdown":       true,
+		"ping":           true,
+	}
+	if !allowedMethods[req.Method] {
+		return nil, newJSONRPCError(MethodNotFoundCode, "method not found")
 	}
 
 	parsed := &ParsedRequest{
@@ -161,7 +189,7 @@ func validateAndExtractRequest(req JSONRPCRequest) (*ParsedRequest, error) {
 			parsed.Params = params
 		}
 
-	case "resources/list", "resources/read", "prompts/list", "prompts/get":
+	case "resources/list", "resources/read", "prompts/list", "prompts/get", "initialize":
 		// Other supported methods - just pass through params
 		if len(req.Params) > 0 {
 			var params any
@@ -192,13 +220,34 @@ func extractToolCallParams(params json.RawMessage) (*ToolCallParams, error) {
 	return &toolParams, nil
 }
 
+// SECURITY FIX: Maximum values for params to prevent resource exhaustion
+const (
+	MaxListLimit    = 1000
+	MaxCursorLength = 256
+)
+
 // extractToolsListParams extracts tools list parameters
+// SECURITY FIX: Added proper error handling and validation
 func extractToolsListParams(params json.RawMessage) (*ToolsListParams, error) {
 	var listParams ToolsListParams
 	if err := json.Unmarshal(params, &listParams); err != nil {
-		// Default to empty params
-		return &listParams, nil
+		// SECURITY FIX: Return error instead of silently swallowing
+		return nil, newJSONRPCError(InvalidParamsCode, "invalid tools list parameters")
 	}
+
+	// SECURITY FIX: Validate limit range
+	if listParams.Limit < 0 {
+		return nil, newJSONRPCError(InvalidParamsCode, "limit must be non-negative")
+	}
+	if listParams.Limit > MaxListLimit {
+		return nil, newJSONRPCError(InvalidParamsCode, fmt.Sprintf("limit exceeds maximum of %d", MaxListLimit))
+	}
+
+	// SECURITY FIX: Validate cursor length
+	if len(listParams.Cursor) > MaxCursorLength {
+		return nil, newJSONRPCError(InvalidParamsCode, fmt.Sprintf("cursor exceeds maximum length of %d", MaxCursorLength))
+	}
+
 	return &listParams, nil
 }
 
@@ -249,7 +298,13 @@ func SerializeBatchResponse(resps []JSONRPCResponse) ([]byte, error) {
 }
 
 // GetToolInfo extracts tool name and arguments for semantic analysis
+// SECURITY FIX: Added nil pointer protection to prevent panics
 func GetToolInfo(parsed *ParsedRequest) (toolName string, args string, ok bool) {
+	// SECURITY FIX: Check for nil pointer before accessing fields
+	if parsed == nil {
+		return "", "", false
+	}
+
 	if parsed.ToolName == "" {
 		return "", "", false
 	}

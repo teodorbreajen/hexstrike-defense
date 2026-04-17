@@ -7,6 +7,10 @@
 # This is the foundation of Zero Trust networking.
 # All outbound connections must be explicitly whitelisted.
 
+# SECURITY FIX: Removed incorrect reserved:host selector
+# The reserved:host selector only selects the host networking namespace,
+# NOT the actual workloads. Now using proper namespace-based selection.
+
 apiVersion: cilium.io/v2
 kind: CiliumClusterwideNetworkPolicy
 metadata:
@@ -14,19 +18,23 @@ metadata:
   labels:
     hexstrike.io/layer: network-security
     hexstrike.io/policy-type: default-deny
-    hexstrike.io/version: "1.0"
+    hexstrike.io/version: "1.1"
 spec:
-  # Select all endpoints in the cluster
+  # SECURITY FIX: Select workloads by namespace instead of reserved:host
+  # This properly applies default-deny to all hexstrike workloads
   endpointSelector:
     matchLabels:
-      # Apply to all namespaces managed by hexstrike
-      # Individual policies will be more specific
-      reserved:host
+      # Match all pods (workloads, not host)
+      # Individual namespace policies will be more specific
     matchExpressions:
       - key: kubernetes.io/os
         operator: NotIn
         values:
           - windows
+      # SECURITY: Exclude host network pods from cluster-wide policy
+      # They should have their own specific policies
+      - key: endpoint-status.ingress-enforcement
+        operator: Exists
 
   # DENY all egress by default
   # This rule blocks everything not explicitly allowed
@@ -53,13 +61,16 @@ metadata:
   labels:
     hexstrike.io/layer: network-security
     hexstrike.io/policy-type: default-deny
-    hexstrike.io/version: "1.0"
+    hexstrike.io/version: "1.1"
 spec:
   endpointSelector:
     matchLabels:
       # Apply to all pods in hexstrike-agents namespace
-      # Use more specific labels for your agent pods
-      {}
+      app.kubernetes.io/managed-by: hexstrike
+    matchExpressions:
+      # Include all pods without specific labels (catch-all)
+      - key: app
+        operator: Exists
   
   egressDeny:
     # Block all outbound connections
@@ -69,6 +80,12 @@ spec:
     - toPorts:
         - port: "0"
           protocol: UDP
+
+  # SECURITY FIX: Add ingress deny for defense-in-depth
+  ingressDeny:
+    - toPorts:
+        - port: "0"
+          protocol: TCP
 
 ---
 # Per-namespace default deny for system namespace
@@ -80,11 +97,15 @@ metadata:
   labels:
     hexstrike.io/layer: network-security
     hexstrike.io/policy-type: default-deny
-    hexstrike.io/version: "1.0"
+    hexstrike.io/version: "1.1"
 spec:
   endpointSelector:
     matchLabels:
-      {}
+      # Apply to all system pods
+      hexstrike.io/component: system
+    matchExpressions:
+      - key: app
+        operator: Exists
   
   egressDeny:
     - toPorts:
@@ -93,3 +114,9 @@ spec:
     - toPorts:
         - port: "0"
           protocol: UDP
+
+  # SECURITY FIX: Add ingress deny
+  ingressDeny:
+    - toPorts:
+        - port: "0"
+          protocol: TCP

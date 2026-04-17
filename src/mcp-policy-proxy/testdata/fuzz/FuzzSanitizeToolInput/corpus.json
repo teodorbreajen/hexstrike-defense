@@ -1,0 +1,42 @@
+[
+  {
+    "toolName": "simple_tool",
+    "args": "simple argument"
+  },
+  {
+    "toolName": "tool_with_underscore",
+    "args": "argument with spaces"
+  },
+  {
+    "toolName": "list",
+    "args": "limit=10"
+  },
+  {
+    "toolName": "read",
+    "args": "{\"path\": \"/tmp/file\"}"
+  },
+  {
+    "toolName": "write",
+    "args": "content=test&mode=append"
+  },
+  {
+    "toolName": "bash",
+    "args": "echo hello"
+  },
+  {
+    "toolName": "invalid\tchar",
+    "args": "test"
+  },
+  {
+    "toolName": "valid",
+    "args": "SELECT * FROM users"
+  },
+  {
+    "toolName": "valid",
+    "args": "rm -rf /tmp/test"
+  },
+  {
+    "toolName": "validtool",
+    "args": "../../../etc/passwd"
+  }
+]

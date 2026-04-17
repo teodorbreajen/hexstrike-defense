@@ -3,6 +3,7 @@ package main
 import (
 	"bytes"
 	"context"
+	"crypto/tls"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -19,11 +20,22 @@ type LakeraConfig struct {
 	BaseURL   string
 }
 
+// LakeraChecker defines the interface for Lakera security checks
+// This allows for mock implementations in tests
+type LakeraChecker interface {
+	CheckToolCall(ctx context.Context, toolName string, arguments string) (bool, int, string, error)
+	HealthCheck(ctx context.Context) error
+	GetConfig() *LakeraConfig
+}
+
 // LakeraClient handles communication with the Lakera Guard API
 type LakeraClient struct {
 	config     *LakeraConfig
 	httpClient *http.Client
 }
+
+// Ensure LakeraClient implements LakeraChecker
+var _ LakeraChecker = (*LakeraClient)(nil)
 
 // LakeraResponse represents the response from Lakera Guard API
 type LakeraResponse struct {
@@ -51,6 +63,9 @@ func NewLakeraClient(config *LakeraConfig) *LakeraClient {
 			MaxIdleConns:        10,
 			MaxIdleConnsPerHost: 5,
 			IdleConnTimeout:     30 * time.Second,
+			TLSClientConfig: &tls.Config{
+				MinVersion: tls.VersionTLS12,
+			},
 		},
 	}
 
@@ -63,10 +78,14 @@ func NewLakeraClient(config *LakeraConfig) *LakeraClient {
 // CheckToolCall sends a tool call to Lakera for semantic analysis
 // Returns: isAllowed (bool), score (int), reason (string), error
 func (c *LakeraClient) CheckToolCall(ctx context.Context, toolName string, arguments string) (bool, int, string, error) {
-	// If no API key is configured, allow all requests (graceful degradation)
+	// SECURITY FIX: Fail-closed when no API key is configured
+	// Previously allowed all requests silently, now require explicit configuration
 	if c.config.APIKey == "" {
-		log.Println("[Lakera] No API key configured - allowing request (graceful degradation)")
-		return true, 0, "API key not configured", nil
+		// Log at ERROR level to ensure operators notice
+		log.Println("[Lakera] CRITICAL: No API key configured - security is DISABLED")
+		log.Println("[Lakera] WARNING: Set LAKERA_API_KEY environment variable for production")
+		// Return error so the proxy can apply fail mode based on its configuration
+		return c.handleError(fmt.Errorf("Lakera API key not configured"))
 	}
 
 	// Build the request payload
@@ -103,17 +122,29 @@ func (c *LakeraClient) CheckToolCall(ctx context.Context, toolName string, argum
 	}
 	defer resp.Body.Close()
 
-	// Read the response body
-	respBody, err := io.ReadAll(resp.Body)
+	// FIX #5: Limit response body to 1MB to prevent memory exhaustion
+	limitedReader := io.LimitReader(resp.Body, 1*1024*1024)
+	respBody, err := io.ReadAll(limitedReader)
 	if err != nil {
+		// Check if it was truncated due to size limit
+		if err == io.ErrUnexpectedEOF {
+			log.Printf("[Lakera] Response body exceeded 1MB limit - treating as error")
+			return c.handleError(fmt.Errorf("response body exceeded 1MB limit"))
+		}
 		log.Printf("[Lakera] Failed to read response body: %v", err)
 		return c.handleError(err)
 	}
 
 	// Check for non-200 status codes
 	if resp.StatusCode != http.StatusOK {
-		log.Printf("[Lakera] API returned status %d: %s", resp.StatusCode, string(respBody))
-		return c.handleError(fmt.Errorf("API returned status %d", resp.StatusCode))
+		// SECURITY FIX: Don't log full response body - may contain sensitive info
+		// Only log truncated info for debugging
+		truncatedBody := string(respBody)
+		if len(truncatedBody) > 200 {
+			truncatedBody = truncatedBody[:200] + "..."
+		}
+		log.Printf("[Lakera] API returned status %d: %s", resp.StatusCode, truncatedBody)
+		return c.handleError(fmt.Errorf("Lakera API returned error status %d", resp.StatusCode))
 	}
 
 	// Parse the response
@@ -141,12 +172,14 @@ func (c *LakeraClient) CheckToolCall(ctx context.Context, toolName string, argum
 	return allowed, lakeraResp.Score, reasonFromResponse(lakeraResp), nil
 }
 
-// handleError handles errors from Lakera API - returns allowed=true for graceful degradation
+// handleError handles errors from Lakera API - returns error for proxy to apply fail mode
+// SECURITY FIX: Sanitized error messages - never expose internal details
 func (c *LakeraClient) handleError(err error) (bool, int, string, error) {
-	// On any error, allow the request (graceful degradation)
-	// In production, you might want to log an alert instead
-	log.Printf("[Lakera] Graceful degradation - allowing request due to error: %v", err)
-	return true, 0, fmt.Sprintf("Lakera unavailable: %v", err), nil
+	// Log full error details server-side only
+	log.Printf("[Lakera] Error - returning to proxy for fail mode handling: %v", err)
+	// SECURITY FIX: Return generic error message to client - don't leak internal details
+	// The error is still returned for logging by the proxy
+	return false, 0, "Lakera security service unavailable", err
 }
 
 // reasonFromResponse extracts a human-readable reason from the response
