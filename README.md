@@ -1,10 +1,10 @@
 # hexstrike-defense
 
-![CI Tests](https://github.com/teodorbreajen/hexstrike-defense/actions/workflows/ci.yml/badge.svg)
-![SDD Validate](https://github.com/teodorbreajen/hexstrike-defense/actions/workflows/sdd-validate.yaml/badge.svg)
-![Security](https://github.com/teodorbreajen/hexstrike-defense/actions/workflows/security.yml/badge.svg)
+![CI Tests](https://github.com/teodorbreajen/hexstrike-defense/workflows/CI%20Tests/badge.svg)
+![SDD Validate](https://github.com/teodorbreajen/hexstrike-defense/workflows/SDD%20Validate/badge.svg)
+![Security](https://github.com/teodorbreajen/hexstrike-defense/workflows/Security%20Hardening/badge.svg)
 [![Go Version](https://img.shields.io/badge/Go-1.21+-00ADD8.svg)](https://golang.org/)
-[![License](https://img.shields.io/badge/License-Proprietary-red.svg)](LICENSE)
+[![License](https://img.shields.io/badge/License-MIT-green.svg)](LICENSE)
 
 Defense-in-Depth architecture for securing autonomous AI agents (hexstrike-ai).
 
