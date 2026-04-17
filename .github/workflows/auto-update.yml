@@ -1,0 +1,219 @@
+name: Auto-Update Checker
+
+on:
+  schedule:
+    - cron: '0 6 * * 1'
+  workflow_dispatch:
+  push:
+    branches:
+      - master
+    paths:
+      - '.github/workflows/auto-update.yml'
+      - 'src/mcp-policy-proxy/go.mod'
+      - '**/Dockerfile'
+
+env:
+  GO_VERSION: '1.21'
+
+jobs:
+  check-version:
+    runs-on: ubuntu-latest
+    outputs:
+      current: ${{ steps.version.outputs.current }}
+      latest: ${{ steps.version.outputs.latest }}
+      needs_update: ${{ steps.version.outputs.needs_update }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: version
+        run: |
+          CURRENT=$(grep -oP '(?<=## \[)\d+\.\d+\.\d+' CHANGELOG.md | head -1)
+          echo "current=$CURRENT" >> $GITHUB_OUTPUT
+
+          LATEST=$(curl -s -H "Accept: application/vnd.github+json" \
+            ${{ github.api_url }}/repos/${{ github.repository }}/releases/latest \
+            | grep -oP '"tag_name":\s*"\K[^"]+' | sed 's/^v//')
+
+          if [[ -z "$LATEST" ]]; then
+            LATEST="0.0.0"
+          fi
+          echo "latest=$LATEST" >> $GITHUB_OUTPUT
+
+          CURRENT_MAJOR=$(echo $CURRENT | cut -d. -f1)
+          LATEST_MAJOR=$(echo $LATEST | cut -d. -f1)
+
+          NEEDS_UPDATE="false"
+          if (( LATEST_MAJOR > CURRENT_MAJOR )); then
+            NEEDS_UPDATE="true"
+          fi
+
+          echo "needs_update=$NEEDS_UPDATE" >> $GITHUB_OUTPUT
+
+  check-go-dependencies:
+    runs-on: ubuntu-latest
+    outputs:
+      has_updates: ${{ steps.outdated.outputs.has_updates }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - id: outdated
+        run: |
+          cd src/mcp-policy-proxy
+          OUTDATED=$(go list -m -u all 2>/dev/null | grep "\[upgradable\]" || true)
+
+          if [[ -n "$OUTDATED" ]]; then
+            echo "has_updates=true" >> $GITHUB_OUTPUT
+            echo "=== Outdated Dependencies ==="
+            echo "$OUTDATED"
+          else
+            echo "has_updates=false" >> $GITHUB_OUTPUT
+            echo "All dependencies are up to date"
+          fi
+
+  check-docker:
+    runs-on: ubuntu-latest
+    outputs:
+      needs_update: ${{ steps.docker.outputs.needs_update }}
+      current_base: ${{ steps.docker.outputs.current_base }}
+      latest_base: ${{ steps.docker.outputs.latest_base }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - id: docker
+        run: |
+          if [[ -f "src/mcp-policy-proxy/Dockerfile" ]]; then
+            CURRENT_BASE=$(grep -oP 'FROM \K[^ ]+' src/mcp-policy-proxy/Dockerfile | head -1)
+            echo "current_base=$CURRENT_BASE" >> $GITHUB_OUTPUT
+
+            if [[ "$CURRENT_BASE" =~ golang:([0-9.]+) ]]; then
+              GO_VERSION="${BASH_REMATCH[1]}"
+              echo "needs_update=false" >> $GITHUB_OUTPUT
+              echo "latest_base=golang:$GO_VERSION-alpine" >> $GITHUB_OUTPUT
+            else
+              echo "needs_update=false" >> $GITHUB_OUTPUT
+              echo "latest_base=$CURRENT_BASE" >> $GITHUB_OUTPUT
+            fi
+          else
+            echo "needs_update=false" >> $GITHUB_OUTPUT
+            echo "current_base=unknown" >> $GITHUB_OUTPUT
+            echo "latest_base=unknown" >> $GITHUB_OUTPUT
+          fi
+
+  create-dependency-pr:
+    runs-on: ubuntu-latest
+    needs: check-go-dependencies
+    if: needs.check-go-dependencies.outputs.has_updates == 'true'
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache: true
+
+      - name: Update dependencies
+        run: |
+          cd src/mcp-policy-proxy
+          go get -u all
+          go mod tidy
+          go mod verify
+
+      - name: Create branch and commit
+        run: |
+          TIMESTAMP=$(date +%Y%m%d%H%M%S)
+          git checkout -b "chore/update-dependencies-$TIMESTAMP"
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add -A
+          git diff --cached --exit-code || git commit -m "chore(deps): update Go dependencies"
+
+      - uses: ad-m/github-push-action@master
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          branch: ${{ github.ref }}
+
+      - name: Create PR
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          gh pr create \
+            --title "chore(deps): update Go dependencies" \
+            --body "## Dependency Updates
+
+This PR updates Go module dependencies to their latest versions.
+
+### Actions
+- Updated go.mod and go.sum
+- Ran go mod tidy
+- Verified dependencies
+
+---
+*Auto-created by \`auto-update.yml\` workflow*" \
+            --base master
+
+  create-version-issue:
+    runs-on: ubuntu-latest
+    needs: check-version
+    if: needs.check-version.outputs.needs_update == 'true'
+    permissions:
+      issues: write
+    steps:
+      - name: Create issue
+        env:
+          CURRENT: ${{ needs.check-version.outputs.current }}
+          LATEST: ${{ needs.check-version.outputs.latest }}
+        run: |
+          gh issue create \
+            --title "Update to v$LATEST" \
+            --body "## Version Update Available
+
+**Current Version**: v$CURRENT
+**Latest Release**: v$LATEST
+
+### Suggested Actions
+
+1. Update CHANGELOG.md with the new version
+2. Update README.md version badges
+3. Create release notes
+4. Create and push the new tag
+5. Create GitHub Release
+
+### Release Checklist
+
+- [ ] Update CHANGELOG.md with version $LATEST
+- [ ] Update README.md version references
+- [ ] Create commit with version bump
+- [ ] Push commit to master
+- [ ] Create and push tag v$LATEST
+- [ ] Create GitHub Release with release notes
+
+---
+*Auto-created by \`auto-update.yml\` workflow*" \
+            --label "update-available" \
+            --label "dependencies"
+
+  summary:
+    runs-on: ubuntu-latest
+    needs: [check-version, check-go-dependencies, check-docker]
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "## Auto-Update Report" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Check | Status |" >> $GITHUB_STEP_SUMMARY
+          echo "|-------|--------|" >> $GITHUB_STEP_SUMMARY
+          echo "| Repository Version | ${{ needs.check-version.outputs.current }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Latest Release | v${{ needs.check-version.outputs.latest }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Go Dependencies | ${{ needs.check-go-dependencies.outputs.has_updates }} |" >> $GITHUB_STEP_SUMMARY
+          echo "| Docker Base | ${{ needs.check-docker.outputs.current_base }} |" >> $GITHUB_STEP_SUMMARY
