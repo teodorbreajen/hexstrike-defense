@@ -1,0 +1,65 @@
+# Dependabot configuration for HexStrike Defense
+# Auto-enabled via GitHub Actions workflow_dispatch
+
+version: 2
+enableagement-algorithms:
+  - SECURITY
+
+registries:
+  github-token:
+    type: git-auth
+
+updates:
+  - package-ecosystem: "gomod"
+    directory: "/src/mcp-policy-proxy"
+    schedule:
+      interval: "weekly"
+    open-pull-requests-limit: 10
+    labels:
+      - "dependencies"
+      - "security"
+    commit-message:
+      prefix: "deps"
+    groups:
+      production-dependencies:
+        dependency-type: "production"
+        update-types:
+          - "minor"
+          - "patch"
+      development-dependencies:
+        dependency-type: "development"
+        update-types:
+          - "minor"
+          - "patch"
+    # Security updates - critical for vulnerability patches
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-major"]
+    # Allow automatic security updates
+    allow:
+      - dependency-name: "*"
+        update-types: ["security"]
+
+  # Docker updates
+  - package-ecosystem: "docker"
+    directory: "/"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "docker"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "docker"
+
+  # GitHub Actions updates
+  - package-ecosystem: "github-actions"
+    directory: "/.github/workflows"
+    schedule:
+      interval: "weekly"
+    labels:
+      - "dependencies"
+      - "github-actions"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "ci"
