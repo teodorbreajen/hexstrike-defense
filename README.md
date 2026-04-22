@@ -128,6 +128,19 @@ make docker-build
 make docker-run
 ```
 
+### Documentation Generator
+
+```bash
+# Generate all documentation
+python docs/tools/doc_engine/main.py
+
+# With verbose output
+python docs/tools/doc_engine/main.py --verbose
+
+# Custom output directory
+python docs/tools/doc_engine/main.py --output ./my-docs
+```
+
 ### Kubernetes
 
 ```bash
@@ -210,6 +223,26 @@ cd tests/e2e && go test -v ./...
 | 503 | Security service unavailable |
 
 ## Documentation
+
+### Auto-Generated (doc_engine)
+
+Documentation is automatically generated from code analysis:
+
+```bash
+# Generate documentation
+python docs/tools/doc_engine/main.py
+
+# Output: docs/generated/*.md
+```
+
+Generated sections include:
+- **Component Catalog** - All Go files, functions, types
+- **Architecture Diagrams** - Mermaid flowcharts
+- **Configuration Reference** - Environment variables
+- **Interfaces** - HTTP endpoints, component interfaces
+- **Security Model** - Headers, auth, rate limits
+
+### Manual Documentation
 
 - `CHANGELOG.md` - Version history
 - `docs/PHASE3-HARDENING-REPORT.md` - Technical report
