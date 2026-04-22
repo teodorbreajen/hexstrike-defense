@@ -1,7 +1,7 @@
 # Documentation Index
 
 **Project**: hexstrike-defense
-**Generated**: 2026-04-22 10:21
+**Generated**: 2026-04-22 08:33
 **Version**: 2.0.0
 
 ## Table of Contents
