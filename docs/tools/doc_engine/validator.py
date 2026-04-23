@@ -14,9 +14,17 @@ Author: HexStrike Documentation Team
 
 import os
 import re
+import logging
 from pathlib import Path
 from typing import Dict, List, Set, Tuple
 from dataclasses import dataclass
+
+# Compiled patterns for link validation
+_LINK_PATTERN = re.compile(r'\[([^\]]+)\]\(([^)]+)\)')
+_ANCHOR_PATTERN = re.compile(r'^#{1,6}\s+(.+)$', re.MULTILINE)
+_EXPLICIT_ANCHOR = re.compile(r'\{#([a-zA-Z0-9_-]+)\}')
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -171,8 +179,8 @@ class LinkValidator:
                     return
                     
         except (ValueError, OSError) as e:
-            # If we can't resolve, be lenient
-            pass
+            logger.debug(f"Could not validate link {link}: {e}")
+            # Don't add issue since we can't determine validity
 
     def _file_exists_case_insensitive(self, link: str) -> bool:
         """Check if file exists (case insensitive)."""

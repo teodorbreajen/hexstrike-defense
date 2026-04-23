@@ -1,6 +1,6 @@
 """
-HexStrike Defense - Documentation Engine
-========================================
+HexStrike Documentation Engine Package
+======================================
 
 Automated documentation generator for hexstrike-defense project.
 
@@ -20,7 +20,7 @@ Usage:
     generate_docs(repo_data, output_dir="/path/to/docs")
 """
 
-__version__ = "1.0.0"
+__version__ = "2.1.0"
 __author__ = "HexStrike Documentation Team"
 
 from .analyzer import RepoAnalyzer

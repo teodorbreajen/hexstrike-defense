@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """
-HexStrike Documentation Engine
-=============================
+HexStrike Documentation Engine v2.1.0
+=====================================
 
 Main entry point for the documentation generator.
 This script can be run from the repository root.
@@ -73,6 +73,31 @@ def main():
     metadata = extractor.extract_all(repo_data.files)
 
     print(f"Analyzed {len(metadata)} modules")
+
+    # Step 2.5: Build component registry
+    print("Building component registry...")
+    try:
+        from registry import ComponentRegistry, create_default_registry, Component, ComponentType
+        registry = create_default_registry()
+
+        # Register extracted modules
+        for path, module in metadata.items():
+            if module.types:
+                for t in module.types:
+                    if t.is_exported:
+                        registry.register_component(Component(
+                            name=t.name,
+                            component_type=ComponentType.SOURCE,
+                            path=path,
+                            description=f"{t.kind} definition",
+                            language=module.language.value,
+                            interfaces=t.methods if t.kind == 'interface' else []
+                        ))
+
+        print(f"Registered {len(registry.components)} components")
+    except ImportError as e:
+        print(f"Warning: Could not import registry module: {e}")
+        registry = None
 
     # Step 3: Generate documentation
     print("Generating documentation...")

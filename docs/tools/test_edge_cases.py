@@ -33,7 +33,7 @@ print('\nHandling special files:')
 
 # Test binary file handling
 binary_file = 'src/mcp-policy-proxy/mcp-policy-proxy'
-result = extractor._extract_go_file(binary_file)
+result = extractor._extract_file(binary_file, '.go')
 if result is None:
     print(f'  [OK] Binary file correctly handled (returned None)')
 else:
@@ -41,7 +41,7 @@ else:
 
 # Test non-go file
 non_go = 'README.md'
-result2 = extractor._extract_go_file(non_go)
+result2 = extractor._extract_file(non_go, '.md')
 if result2 is None:
     print(f'  [OK] Non-Go file correctly handled (returned None)')
 
