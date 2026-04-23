@@ -2,61 +2,90 @@
 
 ## Prerequisites
 
-| Requirement | Version |
-|-------------|----------|
-| Go | 1.21+ |
-| Docker | Latest |
-| Kubernetes | 1.24+ |
-| kubectl | Latest |
-| helm | 3.10+ |
+| Requirement | Version | Notes |
+|-------------|---------|-------|
+| Go | 1.21+ | Latest stable |
+| Docker | Latest | For container builds |
+| Kubernetes | 1.24+ | K8s cluster with worker nodes |
+| kubectl | Latest | Kubernetes CLI |
+| Helm | 3.10+ | Package manager |
+| Cilium | Latest | CNI plugin |
 
 ## Build
 
 ```bash
-# Build the proxy binary
+# Clone and build
+git clone https://github.com/hexstrike/defense.git
+cd defense
 make build
 
 # Output: src/mcp-policy-proxy/mcp-policy-proxy
 ```
 
-## Docker
+## Docker Build
 
 ```bash
-# Build Docker image
+# Build container image
 make docker-build
 
-# Run container
+# Push to registry
+make docker-push REGISTRY=your-registry
+
+# Run locally
 make docker-run
 ```
 
-## Kubernetes
+## Kubernetes Deployment
 
 ```bash
-# Deploy to Kubernetes
+# Deploy to cluster
 ./scripts/deploy.sh
 
-# Validate deployment
+# Verify deployment
+kubectl get pods -n hexstrike-system
 ./scripts/validate.sh
 ```
 
-### Namespace Structure
+## Namespace Structure
 
-- `hexstrike-system` - MCP proxy and configs
-- `hexstrike-agents` - Agent workloads
-- `hexstrike-monitoring` - Falco, Hubble, Sentry
+| Namespace | Components | Purpose |
+|-----------|------------|---------|
+| `hexstrike-system` | MCP Proxy, ConfigMaps | Core proxy |
+| `hexstrike-agents` | Agent workloads | Agent pods |
+| `hexstrike-monitoring` | Falco, Hubble, Metrics | Monitoring |
 
-### Resource Requirements
+## Resource Requirements
 
-| Component | CPU | Memory |
-|-----------|-----|-------|
-| MCP Proxy | 100m-500m | 128Mi-512Mi |
+| Component | CPU Request | CPU Limit | Memory |
+|-----------|------------|----------|--------|
+| MCP Proxy | 100m | 500m | 128Mi |
+| Redis | 50m | 200m | 64Mi |
 
-### Health Checks
+## Health Checks
 
-- Liveness: `/health` endpoint
-- Readiness: `/ready` endpoint
-- Metrics: `/metrics` (Prometheus)
+| Endpoint | Purpose | Auth Required |
+|---------|---------|--------------|
+| `/health` | Liveness probe | No |
+| `/ready` | Readiness probe | No |
+| `/metrics` | Prometheus metrics | No |
+
+## Network Policies
+
+```yaml
+apiVersion: cilium.io/v2
+kind: CiliumNetworkPolicy
+metadata:
+  name: mcp-proxy-policy
+spec:
+  endpointSelector:
+    matchLabels:
+      app: mcp-proxy
+  ingress:
+    - fromEndpoints:
+        - matchLabels:
+            k8s:io= kubernetes
+```
 
 ---
 
-*Generated from scripts and manifests*
+*Generated from manifests and scripts*

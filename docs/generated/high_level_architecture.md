@@ -6,105 +6,124 @@
 graph TD
     subgraph "Layer 7: SDD Governance"
         SDD[Spec-Driven Development]
+        Policy[Security Policies]
     end
 
     subgraph "Layer 6: Observability"
-        OBS[Sentry MCP | Prometheus]
+        OBS1[Sentry MCP]
+        OBS2[Prometheus]
+        OBS3[Hubble]
     end
 
     subgraph "Layer 5: Semantic Firewall"
-        SF[Lakera Guard | Rate Limiting]
+        SF[Lakera Guard]
+        RL[Rate Limiter]
     end
 
     subgraph "Layer 4: Runtime Detection"
-        RT[Falco + Talon]
+        RT[Falco + eBPF]
+        Tal[Talon]
     end
 
     subgraph "Layer 3: Network Containment"
-        NC[Cilium CNI | Zero Trust]
+        NC[Cilium CNI]
+        NP[Network Policies]
     end
 
     subgraph "Layer 2: Agent Isolation"
         ISO[Kubernetes Namespaces]
+        Quota[Resource Quotas]
     end
 
     subgraph "Layer 1: Infrastructure"
-        INF[Node Hardening | RBAC]
+        INF1[Node Hardening]
+        INF2[RBAC]
     end
 
-    User --> SF
+    User --> SDD
+    SDD --> OBS1
+    OBS1 --> SF
     SF --> RT
     RT --> NC
     NC --> ISO
-    ISO --> INF
+    ISO --> INF1
 ```
 
 ## Component Architecture
 
 ```mermaid
 flowchart LR
-    subgraph "hexstrike-defense"
-        Proxy[MCP Policy Proxy] --> MCP[MCP Backend]
-        Proxy --> Lakera[Lakera Guard]
-        Proxy --> Redis[(Rate Limiter)]
+    subgraph Proxy
+        P[MCP Policy Proxy]
+        MW[Middleware Chain]
     end
 
-    subgraph "Kubernetes"
-        Cilium --> Proxy
-        Falco --> Proxy
-        Talon --> Pod
+    subgraph Backend
+        MCP[MCP Server]
+        LK[Lakera Guard]
+        RED[(Redis)]
     end
 
-    User --> Cilium
+    Client -.-> P
+    P -.-> MCP
+    P -.-> LK
+    P -.-> RED
+
+```
+
+## Request Processing Flow
+
+```mermaid
+sequenceDiagram
+    participant C as Client
+    participant P as Proxy
+    participant L as Lakera
+    participant M as MCP Backend
+    participant R as Redis
+
+    C->>P: HTTP Request
+    P->>P: Security Headers
+    P->>P: Rate Limit Check
+    alt Rate Limited
+        P-->>C: HTTP 429 Too Many Requests
+    else
+        P->>P: JWT Validation
+        alt Invalid Token
+            P-->>C: HTTP 401 Unauthorized
+        else
+            P->>L: Semantic Check
+            alt Blocked
+                L-->>P: Score >= Threshold
+                P-->>C: HTTP 403 Forbidden
+            else Allowed
+                L-->>P: Score < Threshold
+                P->>M: Forward Request
+                M-->>P: Response
+                P-->>C: HTTP 200 OK
+            end
+        end
+    end
 ```
 
 ## Security Layers
 
-| Layer | Component | Function |
-|-------|----------|----------|
-| 7 | SDD Governance | Security requirements captured first |
-| 6 | Observability | Monitoring and alerting |
-| 5 | Semantic Firewall | Input validation |
-| 4 | Runtime Detection | Behavioral monitoring |
-| 3 | Network Containment | Zero-trust networking |
-| 2 | Agent Isolation | Namespace isolation |
-| 1 | Infrastructure | Node hardening |
+| Layer | Component | Function | Status |
+|-------|-----------|----------|--------|
+| 7 | SDD Governance | Security requirements captured first | ✓ Active |
+| 6 | Observability | Monitoring and alerting | ✓ Active |
+| 5 | Semantic Firewall | Input validation | ✓ Active |
+| 4 | Runtime Detection | Behavioral monitoring | ✓ Active |
+| 3 | Network Containment | Zero-trust networking | ✓ Active |
+| 2 | Agent Isolation | Namespace isolation | ✓ Active |
+| 1 | Infrastructure | Node hardening | ✓ Active |
 
-## Request Flow
+## Design Principles
 
-```
-User Request
-     │
-     ▼
-┌────────────────────┐
-│ Layer 1: RBAC      │
-└────────────────────┘
-     │
-     ▼
-┌────────────────────┐
-│ Layer 2: Namespace  │
-└────────────────────┘
-     │
-     ▼
-┌────────────────────┐
-│ Layer 3: Cilium     │
-└────────────────────┘
-     │
-     ▼
-┌────────────────────┐
-│ Layer 4: Falco      │
-└────────────────────┘
-     │
-     ▼
-┌────────────────────┐
-│ Layer 5: Proxy     │
-└────────────────────┘
-     │
-     ▼
-┌────────────────────┐
-│ MCP Backend        │
-└────────────────────┘
-```
+1. **Defense in Depth** - Multiple security layers
+2. **Fail Secure** - Fail-closed by default
+3. **Least Privilege** - Minimal permissions
+4. **Zero Trust** - Never trust, always verify
+5. **Observable** - Full visibility into system state
 
 ---
 

@@ -1,17 +1,16 @@
-# Interfaces & Integrations
-
-## Component Interfaces
-
-| Module | Interface | Methods | Purpose |
-|--------|-----------|---------|---------|
-| lakera | LakeraChecker | 3 methods | Interface |
+# API Reference
 
 ## HTTP Endpoints
 
 | Path | Method | Handler | Auth | Description |
 |------|--------|---------|------|-------------|
-| /health | GET | healthHandler | No | API endpoint |
-| /ready | GET | readyHandler | No | API endpoint |
-| /metrics | GET | promHandler | No | API endpoint |
-| / | GET | proxy | No | API endpoint |
+| /health | GET | HealthHandler | No | API |
+| /ready | GET | ReadinessHandler | No | API |
+| /metrics | GET | proxy | No | API |
+| / | GET | proxy | No | API |
 | /* | POST | proxy.Handler() | Yes | MCP proxy |
+
+## Component Interfaces
+
+| Interface | Methods | Purpose |
+|-----------|---------|---------|

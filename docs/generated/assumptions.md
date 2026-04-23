@@ -1,30 +1,24 @@
-# Decisions & Assumptions
+# Design Decisions
 
 ## Architecture Decisions
 
+| Decision | Rationale | Impact |
+|----------|----------|---------|
+| Go for proxy | Performance, single binary | High |
+| Kubernetes | Container orchestration | High |
+| Cilium CNI | eBPF-based networking | Medium |
+| Lakera Guard | Semantic security | Medium |
+| JWT Bearer | Standard auth | Low |
+
+## Implementation Decisions
+
 | Decision | Rationale |
 |----------|----------|
-| Go for proxy | Performance, single binary, Kubernetes support |
-| Kubernetes | Container orchestration, scaling |
-| Cilium CNI | eBPF-based networking, zero-trust |
-| Lakera Guard | Semantic security for AI agents |
-| JWT Bearer | Standard auth, stateless |
-
-## Security Assumptions
-
-- JWT_SECRET configured in production
-- Lakera API key provided
-- TLS enabled in production
-- Network policies enforced
-- Runtime monitoring active
-
-## Known Limitations
-
-- Kubernetes required for full deployment
-- Lakera API connectivity required
-- JWT mandatory in production
-- External API keys needed
+| Fail-closed by default | Security first |
+| JSON logging | SIEM integration |
+| Prometheus metrics | Standard monitoring |
+| Middleware chain | Extensibility |
 
 ---
 
-*Generated from code and config analysis*
+*Generated from architecture analysis*

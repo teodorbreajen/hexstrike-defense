@@ -1,13 +1,13 @@
 # Dependencies & Tooling
 
-## Go Dependencies
+## Direct Dependencies
 
-| Package | Version | Purpose |
-|---------|---------|---------|
-| github.com/golang-jwt/jwt/v5 | 5.2.1 | JWT validation |
-| github.com/google/uuid | 1.6.0 | UUID generation |
-| github.com/prometheus/client_golang | 1.18.0 | Prometheus metrics |
-| github.com/stretchr/testify | 1.9.0 | Testing |
+| Package | Usage Count | Type |
+|---------|------------|------|
+| assert | 10 | external |
+| require | 10 | external |
+| framework | 7 | external |
+| v5 | 1 | external |
 
 ## Build Tools
 
@@ -16,8 +16,7 @@
 | Go 1.21+ | Compilation |
 | Docker | Containerization |
 | kubectl | Kubernetes |
-| helm | Package management |
-| kind/minikube | Development cluster |
+| Helm | Package management |
 
 ## Development Tools
 
@@ -30,4 +29,4 @@
 
 ---
 
-*Generated from go.mod analysis*
+*Generated from dependency analysis*

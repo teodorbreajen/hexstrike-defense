@@ -17,11 +17,11 @@
 
 | Risk | Mitigation |
 |------|------------|
-| Lakera downtime | Fail-closed blocks requests |
-| JWT misconfiguration | Production detection |
+| Service downtime | Fail-closed blocks requests |
+| JWT misconfiguration | Production validation |
 | SSRF attacks | IP whitelist validation |
-| DoS attacks | Rate limiting per client |
+| DoS attacks | Rate limiting |
 
 ---
 
-*Generated from security code*
+*Generated from code analysis*

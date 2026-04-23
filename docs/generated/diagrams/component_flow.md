@@ -1,16 +1,27 @@
 ```mermaid
 flowchart LR
-    subgraph Proxy
-        P[MCP Policy Proxy]
+    subgraph External
+        FRAMEWORK["framework"]
+        REQUIRE["require"]
+        V5["v5"]
+        ASSERT["assert"]
+    end
+
+    subgraph Core
+        PROXY["MCP Proxy"]
+        MW["Middleware"]
     end
 
     subgraph Backend
-        MCP[MCP Server]
-        LK[Lakera Guard]
+        LAKERA["Lakera"]
+        REDIS["Redis"]
+        MCP["MCP Server"]
     end
 
-    Client --> P
-    P --> MCP
-    P --> LK
+    CLIENT -.-> PROXY
+    PROXY -.-> MW
+    PROXY -.-> LAKERA
+    PROXY -.-> REDIS
+    PROXY -.-> MCP
 
 ```

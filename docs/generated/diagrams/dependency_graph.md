@@ -1,26 +1,35 @@
 ```mermaid
-flowchart TB
+flowchart BT
+    style PROXY fill:#f9f,stroke:#333,stroke-width:2px
     subgraph Dependencies
-        v1["corev1 "k8s.io/api/core/v1"]
-        go["dto "github.com/prometheus/client_model/go"]
-        v5["github.com/golang-jwt/jwt/v5"]
-        uuid["github.com/google/uuid"]
-        framework["github.com/hexstrike/hexstrike-defense/tests/e2e/framework"]
-        dlq["github.com/hexstrike/mcp-policy-proxy/dlq"]
-        prometheus["github.com/prometheus/client_golang/prometheus"]
-        promauto["github.com/prometheus/client_golang/prometheus/promauto"]
-        promhttp["github.com/prometheus/client_golang/prometheus/promhttp"]
-        assert["github.com/stretchr/testify/assert"]
-        require["github.com/stretchr/testify/require"]
-        kubernetes["k8s.io/client-go/kubernetes"]
-        scheme["k8s.io/client-go/kubernetes/scheme"]
-        clientcmd["k8s.io/client-go/tools/clientcmd"]
-        remotecommand["k8s.io/client-go/tools/remotecommand"]
-        v1["metav1 "k8s.io/apimachinery/pkg/apis/meta/v1"]
-        rest["restclient "k8s.io/client-go/rest"]
-        sort["sort"]
-        strconv["strconv"]
-        syscall["syscall"]
-        testing["testing"]
+        prometheus_test --> REQUIRE
+        prometheus_test --> ASSERT
+        metrics_test --> ASSERT
+        logger_test --> REQUIRE
+        logger_test --> ASSERT
+        proxy_handler_test --> V5
+        proxy_handler_test --> ASSERT
+        rate_limiter_test --> ASSERT
+        cors_test --> ASSERT
+        dlq_test --> REQUIRE
+        dlq_test --> ASSERT
+        test_cilium_policies --> REQUIRE
+        test_cilium_policies --> FRAMEWORK
+        test_falco_detection --> REQUIRE
+        test_falco_detection --> FRAMEWORK
+        governance_test --> FRAMEWORK
+        governance_test --> REQUIRE
+        governance_test --> ASSERT
+        semantic_proxy_test --> FRAMEWORK
+        semantic_proxy_test --> REQUIRE
+        semantic_proxy_test --> ASSERT
+        test_semantic_firewall --> FRAMEWORK
+        test_semantic_firewall --> REQUIRE
+        test_semantic_firewall --> ASSERT
+        network_security_test --> REQUIRE
+        network_security_test --> FRAMEWORK
+        runtime_security_test --> REQUIRE
+        runtime_security_test --> FRAMEWORK
     end
+
 ```

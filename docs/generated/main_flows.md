@@ -1,48 +1,52 @@
 # Execution Flows
 
-## Request Processing Flow
+## Request Processing Lifecycle
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                    REQUEST LIFECYCLE                       │
+│                   REQUEST LIFECYCLE                      │
 ├─────────────────────────────────────────────────────────────┤
 │                                                              │
-│  1. REQUEST RECEIVED                                        │
+│  1. REQUEST RECEIVED (HTTP/WS)                            │
 │     │                                                       │
 │     ▼                                                       │
-│  2. SECURITY HEADERS                                        │
+│  2. SECURITY HEADERS                                       │
 │     - X-Content-Type-Options: nosniff                       │
-│     - X-Frame-Options: DENY                                 │
-│     - Content-Security-Policy                                │
+│     - X-Frame-Options: DENY                                │
+│     - Content-Security-Policy                               │
 │     │                                                       │
 │     ▼                                                       │
-│  3. RATE LIMIT CHECK                                       │
-│     - Per-client token bucket                              │
-│     - Max 60 requests/minute                                │
+│  3. RATE LIMIT CHECK                                      │
+│     - Token bucket algorithm                               │
+│     - Per-client limits                                  │
 │     │                                                       │
 │     ▼                                                       │
-│  4. AUTHENTICATION                                         │
-│     - JWT Bearer token validation                           │
-│     - HS256/384/512 only                                  │
+│  4. AUTHENTICATION                                       │
+│     - JWT Bearer token (HS256/384/512)                   │
+│     - Token expiry validation                            │
 │     │                                                       │
 │     ▼                                                       │
-│  5. SEMANTIC CHECK (Lakera)                               │
-│     - Prompt injection detection                         │
-│     - Tool call validation                                │
+│  5. SEMANTIC SECURITY CHECK                             │
+│     - Prompt injection detection                        │
+│     - Tool call validation                           │
+│     - Content classification                        │
 │     │                                                       │
 │     ▼                                                       │
-│  6. MCP BACKEND PROXY                                      │
-│     - Forward to MCP server                               │
+│  6. MCP BACKEND PROXY                                    │
+│     - Request transformation                         │
+│     - Response handling                              │
 │     │                                                       │
 │     ▼                                                       │
-│  7. RESPONSE                                              │
+│  7. RESPONSE                                          │
+│     - JSON serialization                            │
+│     - Security headers                             │
 │                                                              │
 └─────────────────────────────────────────────────────────────┘
 ```
 
 ## Middleware Chain
 
-The proxy uses a middleware chain pattern:
+The proxy implements a middleware chain pattern:
 
 ```
 Request
@@ -50,35 +54,75 @@ Request
     ▼
 ┌─────────────────────────────────┐
 │ CORS Middleware                   │
-└─────────────────────────────────┘
+│ - Origin validation             │
+│ - Method checking             │
+└───────────────────────���─���───────┘
     │
     ▼
 ┌─────────────────────────────────┐
 │ Security Headers Middleware     │
+│ - CSP headers                 │
+│ - HSTS                        │
+│ - X-Frame-Options             │
 └─────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────┐
 │ Logging Middleware             │
+│ - Request ID                  │
+│ - Access logs                │
 └─────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────┐
 │ Rate Limit Middleware           │
+│ - Token bucket                │
+│ - Per-client tracking        │
 └─────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────┐
-│ Auth Middleware                 │
+│ Auth Middleware                │
+│ - JWT validation             │
+│ - Claims extraction         │
 └─────────────────────────────────┘
     │
     ▼
 ┌─────────────────────────────────┐
 │ Semantic Check Middleware       │
+│ - Lakera integration         │
+│ - Content filtering         │
 └─────────────────────────────────┘
     │
     ▼
 Response
+```
+
+## Error Handling Flow
+
+```
+Error Occurs
+    │
+    ▼
+┌─────────────────────────────────┐
+│ Error Classification           │
+│ - Validation Error          │
+│ - Authentication Error      │
+│ - Rate Limit Error          │
+│ - Semantic Error           │
+│ - Backend Error            │
+└─────────────────────────────────┘
+    │
+    ▼
+┌─────────────────────────────────┐
+│ Error Response                │
+│ - Appropriate HTTP code     │
+│ - Safe error message      │
+│ - Request ID for debug   │
+└─────────────────────────────────┘
+    │
+    ▼
+Logging + Alerting
 ```
 
 ---
